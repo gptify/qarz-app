@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Qarz Daftari — Telegram Mini App</title>
+  
+  <!-- Telegram WebApp SDK -->
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <div class="app-wrapper">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="header-brand">
+        <div class="brand-icon">📒</div>
+        <div class="brand-info">
+          <h1 id="headerShopTitle">Mahalla Baraka Do'koni</h1>
+          <p id="headerSubtitle">Aqlli Qarz Daftari</p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button class="icon-btn" id="btnOpenQRPoster" title="Peshtaxta uchun QR Plakat">🖼️</button>
+        <button class="icon-btn" id="btnOpenCloudBackup" title="Bulutli Zaxira va Sinxronlash">☁️</button>
+        <button class="icon-btn" id="btnExport" title="Hisobot eksport qilish">📥</button>
+        <button class="icon-btn" id="btnResetDemo" title="Demoni yangilash">🔄</button>
+      </div>
+    </header>
+
+    <!-- MAIN VIEW: CUSTOMERS LEDGER -->
+    <main id="viewCustomers" class="tab-view active">
+      <!-- Stats Overview -->
+      <section class="stats-container">
+        <div class="main-stat-card">
+          <div class="label">Jami Nasiya (Qarz)</div>
+          <div class="amount" id="totalDebtDisplay">0 so'm</div>
+          <div class="stat-sub-row">
+            <div class="sub-stat-item">
+              <span>Bugun berildi:</span>
+              <strong id="todayGivenDisplay">0 so'm</strong>
+            </div>
+            <div class="sub-stat-item">
+              <span>Bugun qaytarildi:</span>
+              <strong id="todayCollectedDisplay" style="color: #6ee7b7;">0 so'm</strong>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Quick Voice Assistant Bar on Dashboard -->
+      <section style="padding: 0 20px 8px;">
+        <div class="voice-banner" style="margin-bottom: 0; padding: 10px 14px; cursor: pointer;" id="btnDashboardVoiceQuick">
+          <div class="voice-info">
+            <div class="mic-circle" style="width: 36px; height: 36px; font-size: 16px;">🎙️</div>
+            <div>
+              <strong style="font-size: 13px; display: block;">Ovoz bilan qarz yozish (Qoralama)</strong>
+              <span style="font-size: 11px; color: var(--tg-theme-hint-color);">To'xtovsiz gapiring, qoralamani tahrirlang</span>
+            </div>
+          </div>
+          <span style="font-size: 11px; background: #dbeafe; color: var(--primary); font-weight: 700; padding: 4px 8px; border-radius: 6px;">Ochish</span>
+        </div>
+      </section>
+
+      <!-- Search & Filters -->
+      <section class="search-filter-section">
+        <div class="search-bar">
+          <span class="search-icon">🔍</span>
+          <input type="text" id="customerSearchInput" placeholder="Mijoz ismi yoki telefon raqami...">
+        </div>
+        <div class="filter-pills">
+          <button class="pill-btn active" data-filter="all">Barchasi</button>
+          <button class="pill-btn" data-filter="overdue">⚠️ Xavfli / Muddati o'tgan</button>
+          <button class="pill-btn" data-filter="active">⏳ Faol qarzlar</button>
+          <button class="pill-btn" data-filter="settled">✅ Qaytarilganlar</button>
+        </div>
+      </section>
+
+      <!-- Customer List -->
+      <section class="list-section">
+        <div class="section-title-row">
+          <span class="section-title">Mijozlar ro'yxati</span>
+          <span id="customerCountBadge" style="font-size: 12px; color: var(--tg-theme-hint-color);">0 ta mijoz</span>
+        </div>
+        <div id="customerListContainer">
+          <!-- Populated by JS -->
+        </div>
+      </section>
+    </main>
+
+    <!-- SUPPLIERS VIEW -->
+    <main id="viewSuppliers" class="tab-view" style="display: none;">
+      <section class="stats-container">
+        <div class="main-stat-card" style="background: linear-gradient(135deg, #7c3aed 0%, #a855f7 100%);">
+          <div class="label">Ta'minotchilardan olingan qarz</div>
+          <div class="amount" id="totalSupplierDebtDisplay">0 so'm</div>
+          <p style="font-size: 12px; opacity: 0.9; margin-top: 4px;">Furalar, distribyutorlar va nonvoyxona qarzlari</p>
+        </div>
+      </section>
+
+      <section class="list-section">
+        <div class="section-title-row">
+          <span class="section-title">Ta'minotchilar (Postavshiklar)</span>
+          <button class="pill-btn active" id="btnOpenAddSupplier" style="font-size: 12px; padding: 4px 12px;">+ Yangi ta'minotchi</button>
+        </div>
+        <div id="supplierListContainer">
+          <!-- Populated by JS -->
+        </div>
+      </section>
+    </main>
+
+    <!-- ANALYTICS / REPORT VIEW -->
+    <main id="viewAnalytics" class="tab-view" style="display: none;">
+      <section class="stats-container">
+        <div class="main-stat-card" style="background: linear-gradient(135deg, #059669 0%, #10b981 100%);">
+          <div class="label">Oylik Hisob-kitob</div>
+          <div class="amount" id="analyticsTotalTurnover">0 so'm</div>
+          <p style="font-size: 12px; opacity: 0.9;">Do'kon nasiya xavfsizligi va tahlili</p>
+        </div>
+      </section>
+
+      <section class="list-section">
+        <div class="customer-card" style="flex-direction: column; align-items: flex-start; gap: 12px;">
+          <h3 style="font-size: 15px; font-weight: 700;">💡 Do'kon Tavsiyalari (AI Tahlil)</h3>
+          <p style="font-size: 13px; color: var(--tg-theme-hint-color); line-height: 1.5;">
+            • Qarz balansi optimal chegarada.<br>
+            • 1 ta mijozda limitdan oshish holati aniqlangan (Dilshod sartarosh). Eslatma yuborish tavsiya etiladi.<br>
+            • Eng faol qaytaruvchilar: Lola opa va Sanjar.
+          </p>
+        </div>
+
+        <button class="btn-primary" id="btnDownloadReportPDF" style="margin-top: 14px;">
+          📄 To'liq hisobotni yuklab olish (Excel/Text)
+        </button>
+      </section>
+    </main>
+
+    <!-- BOTTOM NAVIGATION -->
+    <nav class="bottom-nav">
+      <button class="nav-item active" data-tab="viewCustomers">
+        <span class="nav-icon">📒</span>
+        <span>Nasiyalar</span>
+      </button>
+      <button class="nav-item add-btn-nav" id="btnNavAddDebt">
+        <span class="nav-icon">➕</span>
+        <span>Qarz yozish</span>
+      </button>
+      <button class="nav-item" data-tab="viewSuppliers">
+        <span class="nav-icon">🚚</span>
+        <span>Ta'minotchi</span>
+      </button>
+      <button class="nav-item" data-tab="viewAnalytics">
+        <span class="nav-icon">📊</span>
+        <span>Hisobot</span>
+      </button>
+    </nav>
+  </div>
+
+  <!-- MODAL: YANGI QARZ YOZISH (3-SECOND ENTRY) -->
+  <div class="modal-overlay" id="modalAddDebt">
+    <div class="bottom-sheet">
+      <div class="sheet-handle"></div>
+      <div class="sheet-header">
+        <h2 class="sheet-title">⚡ Yangi Qarz Yozish</h2>
+        <button class="close-btn" data-close="modalAddDebt">✕</button>
+      </div>
+
+      <!-- Continuous Voice Assistant & Draft Studio -->
+      <div class="voice-banner">
+        <div class="voice-banner-header">
+          <div class="voice-info">
+            <button type="button" class="mic-circle" id="btnVoiceRecord" title="Ovozni boshlash/to'xtatish">🎙️</button>
+            <div>
+              <strong style="font-size: 14px; display: block;" id="voiceTitleText">Ovozli Qoralama</strong>
+              <div id="voiceLiveIndicator" style="display: none;" class="mic-live-indicator">
+                <span class="live-dot"></span>
+                <span>Yozilmoqda (to'xtatmaguningizcha o'chmaydi)</span>
+              </div>
+              <span style="font-size: 11px; color: var(--tg-theme-hint-color);" id="voiceStatusText">Mikrofon tugmasini bosing va to'xtovsiz gapiring</span>
+            </div>
+          </div>
+          <button type="button" class="voice-btn-sm btn-stop-mic" id="btnStopMic" style="display: none;">
+            ⏹️ To'xtatish
+          </button>
+        </div>
+
+        <!-- Editable Draft Text Box -->
+        <div class="voice-draft-section" id="voiceDraftSection">
+          <div class="draft-label-row">
+            <label class="form-label" style="margin-bottom: 0; font-size: 12px; font-weight: 700;">📝 Qoralama matn (tahrirlashingiz mumkin):</label>
+            <button type="button" id="btnClearDraft" style="background: none; border: none; color: var(--danger); font-size: 11px; font-weight: 600; cursor: pointer;">Tozalash</button>
+          </div>
+          <textarea id="inputVoiceDraft" class="draft-box" placeholder="Aytgan so'zlaringiz bu yerga tushadi... Masalan: 'Anvar akaga ellik ming so'm 2 ta non va go'sht'"></textarea>
+
+          <!-- Real-time Parsed Preview Card -->
+          <div class="parsed-preview-card" id="parsedPreviewCard">
+            <div class="parsed-preview-header">⚡ Aniqlangan ma'lumotlar:</div>
+            <div class="parsed-preview-grid">
+              <div class="preview-chip">
+                <span>Mijoz:</span>
+                <strong id="previewCustomerName">—</strong>
+              </div>
+              <div class="preview-chip">
+                <span>Summa:</span>
+                <strong id="previewAmount" style="color: var(--primary);">—</strong>
+              </div>
+            </div>
+            <div class="preview-chip" style="margin-bottom: 6px;">
+              <span>Tovarlar / Izoh:</span>
+              <strong id="previewItems">—</strong>
+            </div>
+          </div>
+
+          <!-- Actions -->
+          <div class="voice-actions-row">
+            <button type="button" class="voice-btn-sm btn-parse-draft" id="btnParseDraftText">
+              🔄 Qayta tahlil qilish
+            </button>
+            <button type="button" class="voice-btn-sm btn-apply-draft" id="btnApplyDraftToForm">
+              ➡️ Qarz maydonlariga o'tkazish
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <form id="formAddDebt">
+        <!-- Editable / Searchable Customer Combobox -->
+        <div class="form-group">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <label class="form-label" style="margin-bottom: 0;">Mijoz (Tanlang yoki yangi ism yozing)</label>
+            <button type="button" id="btnToggleNewCustomer" style="background: none; border: none; color: var(--primary); font-size: 12px; font-weight: 600; cursor: pointer;">
+              + Telefon / Limit qo'shish
+            </button>
+          </div>
+          <div style="position: relative;">
+            <input type="text" id="inputCustomerCombobox" class="form-input" placeholder="Mijoz ismi (masalan: Anvar aka yoki yangi ism)..." list="customerDatalist" autocomplete="off" required>
+            <datalist id="customerDatalist">
+              <!-- Populated dynamically with all customers -->
+            </datalist>
+          </div>
+          <!-- Real-time matched customer badge / new customer indicator -->
+          <div id="customerMatchStatus" style="font-size: 12px; margin-top: 4px; display: none;"></div>
+        </div>
+
+        <!-- Optional New Customer Extra Fields (Phone, Limit) -->
+        <div id="newCustomerFields" style="display: none; background: var(--tg-theme-bg-color); padding: 12px; border-radius: var(--radius-md); margin-bottom: 14px; border: 1px dashed var(--border-color);">
+          <div style="font-size: 12px; font-weight: 700; color: var(--tg-theme-hint-color); margin-bottom: 8px;">Qo'shimcha ma'lumotlar (ixtiyoriy):</div>
+          <input type="tel" id="newCustPhone" class="form-input" placeholder="Telefon raqami (+998 90...)" style="margin-bottom: 8px;">
+          <input type="number" id="newCustLimit" class="form-input" placeholder="Nasiya limiti (masalan: 500 000)">
+        </div>
+
+        <!-- Editable Amount Section with POS Numpad -->
+        <div class="form-group">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <label class="form-label" style="margin-bottom: 0;">Summa (so'm)</label>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span id="amountFormattedPreview" style="font-size: 14px; font-weight: 800; color: var(--primary);">0 so'm</span>
+              <button type="button" class="pos-toggle-btn active" id="btnTogglePosNumpad" title="Kalkulyator-numpadni yoqish/o'chirish">
+                📱 POS Numpad
+              </button>
+            </div>
+          </div>
+          <div style="display: flex; gap: 6px;">
+            <input type="number" id="inputDebtAmount" class="form-input" placeholder="0" style="font-size: 20px; font-weight: 700; color: var(--primary); flex: 1;" required>
+            <button type="button" class="chip-btn" id="btnClearAmount" title="Tozalash" style="padding: 0 14px; font-size: 13px; background: #fee2e2; color: #b91c1c; border-color: #fca5a5;">C</button>
+          </div>
+
+          <!-- POS IN-APP KEYPAD -->
+          <div class="pos-numpad-container" id="posNumpadContainer">
+            <div class="pos-numpad-grid">
+              <button type="button" class="pos-key" data-key="1">1</button>
+              <button type="button" class="pos-key" data-key="2">2</button>
+              <button type="button" class="pos-key" data-key="3">3</button>
+              <button type="button" class="pos-key pos-action-key" data-key="backspace">⌫</button>
+
+              <button type="button" class="pos-key" data-key="4">4</button>
+              <button type="button" class="pos-key" data-key="5">5</button>
+              <button type="button" class="pos-key" data-key="6">6</button>
+              <button type="button" class="pos-key pos-action-key" data-key="clear">C</button>
+
+              <button type="button" class="pos-key" data-key="7">7</button>
+              <button type="button" class="pos-key" data-key="8">8</button>
+              <button type="button" class="pos-key" data-key="9">9</button>
+              <button type="button" class="pos-key pos-multiplier-key" data-key="+10k">+10k</button>
+
+              <button type="button" class="pos-key" data-key="00">00</button>
+              <button type="button" class="pos-key" data-key="0">0</button>
+              <button type="button" class="pos-key" data-key="000">000</button>
+              <button type="button" class="pos-key pos-multiplier-key" data-key="+50k">+50k</button>
+            </div>
+          </div>
+
+          <div class="quick-amount-chips">
+            <button type="button" class="chip-btn" data-add="10000">+10 ming</button>
+            <button type="button" class="chip-btn" data-add="20000">+20 ming</button>
+            <button type="button" class="chip-btn" data-add="50000">+50 ming</button>
+            <button type="button" class="chip-btn" data-add="100000">+100 ming</button>
+            <button type="button" class="chip-btn" data-add="500000">+500 ming</button>
+            <button type="button" class="chip-btn" data-add="1000000">+1 mln</button>
+          </div>
+        </div>
+
+        <!-- Editable Tezkor Tovarlar (Quick Tags) -->
+        <div class="form-group">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <label class="form-label" style="margin-bottom: 0;">Tezkor tovarlar</label>
+            <button type="button" id="btnOpenAddTag" style="background: none; border: none; color: var(--primary); font-size: 12px; font-weight: 600; cursor: pointer;">
+              + Yangi tovar qo'shish
+            </button>
+          </div>
+          <!-- Inline New Tag Input (hidden by default) -->
+          <div id="newTagInlineForm" style="display: none; gap: 6px; margin-bottom: 8px;">
+            <input type="text" id="inputNewTagName" class="form-input" placeholder="Yangi tovar nomi (masalan: Pamper, Sement, Cola)..." style="padding: 8px 12px; font-size: 13px; flex: 1;">
+            <button type="button" class="chip-btn" id="btnConfirmAddTag" style="background: var(--primary); color: white; border: none; padding: 8px 14px;">Qo'shish</button>
+            <button type="button" class="chip-btn" id="btnCancelAddTag" style="padding: 8px 10px;">✕</button>
+          </div>
+          <div class="quick-tags" id="quickProductTags">
+            <!-- Injected by JS with editable remove button -->
+          </div>
+        </div>
+
+        <!-- Date & Time Selection -->
+        <div class="form-group">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <label class="form-label" style="margin-bottom: 0;">📅 Qarz berilgan sana va vaqt</label>
+            <div style="display: flex; gap: 4px;">
+              <button type="button" class="chip-btn" id="btnDateToday" style="padding: 2px 8px; font-size: 11px;">Bugun</button>
+              <button type="button" class="chip-btn" id="btnDateYesterday" style="padding: 2px 8px; font-size: 11px;">Kecha</button>
+            </div>
+          </div>
+          <input type="datetime-local" id="inputDebtDate" class="form-input" style="font-size: 14px; font-weight: 600;" required>
+        </div>
+
+        <!-- Return / Due Date (Optional) -->
+        <div class="form-group">
+          <label class="form-label">⏳ Qaytarish muddati (ixtiyoriy)</label>
+          <div style="display: flex; gap: 6px; margin-bottom: 6px; flex-wrap: wrap;" id="dueDateChips">
+            <button type="button" class="chip-btn" data-days="3">+3 kun</button>
+            <button type="button" class="chip-btn" data-days="7">+1 hafta</button>
+            <button type="button" class="chip-btn" data-days="15">+15 kun</button>
+            <button type="button" class="chip-btn" data-days="30">+1 oy</button>
+          </div>
+          <input type="date" id="inputDebtDueDate" class="form-input" style="font-size: 13px;">
+        </div>
+
+        <!-- Note -->
+        <div class="form-group">
+          <label class="form-label">Izoh / Mahsulotlar</label>
+          <input type="text" id="inputDebtNote" class="form-input" placeholder="Masalan: 2ta non, 1kg go'sht">
+        </div>
+
+        <!-- Notify Customer Checkbox -->
+        <div style="background: var(--primary-light); padding: 10px 14px; border-radius: var(--radius-md); margin-bottom: 14px; display: flex; align-items: center; justify-content: space-between; border: 1px solid #bfdbfe;">
+          <div>
+            <strong style="font-size: 13px; color: var(--primary); display: block;">📲 Tasdiqlash chekini yuborish</strong>
+            <span style="font-size: 11px; color: var(--tg-theme-hint-color);">Xaridorga Telegram yoki SMS orqali kvitansiya chiqarish</span>
+          </div>
+          <input type="checkbox" id="checkNotifyCustomer" checked style="width: 20px; height: 20px; accent-color: var(--primary); cursor: pointer;">
+        </div>
+
+        <button type="submit" class="btn-primary">
+          💾 Saqlash va Qarz Daftariga Yozish
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: MIJOZ TAFSILOTLARI & QARZ TARIXI -->
+  <div class="modal-overlay" id="modalCustomerDetails">
+    <div class="bottom-sheet">
+      <div class="sheet-handle"></div>
+      <div class="sheet-header">
+        <div>
+          <h2 class="sheet-title" id="detailCustomerName">Mijoz</h2>
+          <p id="detailCustomerPhone" style="font-size: 13px; color: var(--tg-theme-hint-color);"></p>
+        </div>
+        <button class="close-btn" data-close="modalCustomerDetails">✕</button>
+      </div>
+
+      <!-- Debt Status Box -->
+      <div style="background: var(--tg-theme-bg-color); padding: 14px; border-radius: var(--radius-md); text-align: center; margin-bottom: 16px;">
+        <span style="font-size: 12px; color: var(--tg-theme-hint-color);">Joriy qarz balansi:</span>
+        <div id="detailTotalDebt" style="font-size: 26px; font-weight: 800; color: var(--danger); margin: 4px 0;">0 so'm</div>
+        <div id="detailLimitBadge" style="font-size: 12px;"></div>
+      </div>
+
+      <!-- Action Buttons -->
+      <div style="display: flex; gap: 8px; margin-bottom: 16px;">
+        <button class="btn-primary btn-success" id="btnOpenPaymentModal" style="flex: 1; margin: 0; padding: 12px 10px; font-size: 14px;">
+          💵 Pul qaytardi (Kirim)
+        </button>
+        <button class="btn-primary" id="btnOpenReminderModal" style="flex: 1; margin: 0; padding: 12px 10px; font-size: 14px;">
+          💬 Eslatma yuborish
+        </button>
+      </div>
+
+      <!-- Transaction History -->
+      <div class="section-title" style="margin-bottom: 8px;">Qarz va to'lovlar tarixi</div>
+      <div class="history-timeline" id="detailHistoryContainer">
+        <!-- Injected by JS -->
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: PUL QABUL QILISH (PAYMENT COLLECTION) -->
+  <div class="modal-overlay" id="modalRecordPayment">
+    <div class="bottom-sheet">
+      <div class="sheet-handle"></div>
+      <div class="sheet-header">
+        <h2 class="sheet-title">💵 Qarzni So'ndirish (To'lov)</h2>
+        <button class="close-btn" data-close="modalRecordPayment">✕</button>
+      </div>
+
+      <form id="formRecordPayment">
+        <div class="form-group">
+          <label class="form-label">To'lov miqdori (so'm)</label>
+          <input type="number" id="inputPayAmount" class="form-input" placeholder="0" style="font-size: 22px; font-weight: 700; color: var(--success);" required>
+          <div style="margin-top: 8px;">
+            <button type="button" class="chip-btn" id="btnPayFullDebt">To'liq summani kiritish</button>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">To'lov usuli / Izoh</label>
+          <select id="selectPayMethod" class="form-select">
+            <option value="Naqd pul">Naqd pul</option>
+            <option value="Click orqali to'lov">Click orqali to'lov</option>
+            <option value="Payme orqali to'lov">Payme orqali to'lov</option>
+            <option value="Bank kartasiga o'tkazma">Bank kartasiga o'tkazma</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">📅 To'lov qabul qilingan sana va vaqt</label>
+          <input type="datetime-local" id="inputPayDate" class="form-input" style="font-size: 14px;">
+        </div>
+
+        <button type="submit" class="btn-primary btn-success">
+          ✅ To'lovni tasdiqlash
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: ODOBLI ESLATMA VA TO'LOV LINKI GENERATORI -->
+  <div class="modal-overlay" id="modalSendReminder">
+    <div class="bottom-sheet">
+      <div class="sheet-handle"></div>
+      <div class="sheet-header">
+        <h2 class="sheet-title">📲 Eslatma Yuborish</h2>
+        <button class="close-btn" data-close="modalSendReminder">✕</button>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Eslatma ohangi (Tone of voice)</label>
+        <div class="filter-pills" id="toneFilterPills">
+          <button type="button" class="pill-btn active" data-tone="polite">🤝 Hurmatli / Odobli</button>
+          <button type="button" class="pill-btn" data-tone="friendly">😊 Do'stona</button>
+          <button type="button" class="pill-btn" data-tone="juma">🕌 Juma tabrigi bilan</button>
+          <button type="button" class="pill-btn" data-tone="formal">📄 Rasmiy</button>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Xabar matni & To'lov havolasi</label>
+        <textarea id="reminderMessageText" class="form-textarea" rows="6" style="font-size: 13px; line-height: 1.5;"></textarea>
+      </div>
+
+      <button class="btn-primary" id="btnShareTelegram" style="background: #2481cc;">
+        ✈️ Telegram orqali yuborish
+      </button>
+
+      <div style="display: flex; gap: 8px; margin-top: 8px;">
+        <button class="btn-outline" id="btnCopyReminderText" style="flex: 1;">
+          📋 Nusxa olish
+        </button>
+        <button class="btn-outline" id="btnSendSMSDirect" style="flex: 1;">
+          💬 SMS orqali ochish
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: TASDIQLASH CHEKI VA KVITANSIYA (RECEIPT PREVIEW) -->
+  <div class="modal-overlay" id="modalReceiptPreview">
+    <div class="bottom-sheet">
+      <div class="sheet-handle"></div>
+      <div class="sheet-header">
+        <h2 class="sheet-title" id="receiptModalTitle">🧾 Nasiya Cheki Tayyor</h2>
+        <button class="close-btn" data-close="modalReceiptPreview">✕</button>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Xaridorga yuboriladigan tasdiq cheki:</label>
+        <textarea id="textReceiptContent" class="form-textarea" rows="9" style="font-family: monospace; font-size: 13px; line-height: 1.4; background: var(--tg-theme-bg-color);" readonly></textarea>
+      </div>
+
+      <div style="display: flex; gap: 8px;">
+        <button class="btn-primary" id="btnReceiptShareTelegram" style="flex: 1; margin-top: 4px; background: #2481cc;">
+          ✈️ Telegram'da yuborish
+        </button>
+        <button class="btn-primary btn-success" id="btnReceiptShareSMS" style="flex: 1; margin-top: 4px;">
+          💬 SMS'da yuborish
+        </button>
+      </div>
+
+      <div style="display: flex; gap: 8px; margin-top: 8px;">
+        <button class="btn-outline" id="btnReceiptCopy" style="flex: 1; margin-top: 0;">
+          📋 Nusxa olish
+        </button>
+        <button class="btn-outline" data-close="modalReceiptPreview" style="flex: 1; margin-top: 0; color: var(--tg-theme-hint-color); border-color: var(--border-color);">
+          ✅ Yopish
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: YANGI TA'MINOTCHI QO'SHISH -->
+  <div class="modal-overlay" id="modalAddSupplier">
+    <div class="bottom-sheet">
+      <div class="sheet-handle"></div>
+      <div class="sheet-header">
+        <h2 class="sheet-title">🚚 Yangi Ta'minotchi</h2>
+        <button class="close-btn" data-close="modalAddSupplier">✕</button>
+      </div>
+
+      <form id="formAddSupplier">
+        <div class="form-group">
+          <label class="form-label">Kompaniya / Ta'minotchi nomi</label>
+          <input type="text" id="inputSupName" class="form-input" placeholder="Masalan: Samarqand Nonvoyxonasi" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Telefon</label>
+          <input type="tel" id="inputSupPhone" class="form-input" placeholder="+998 90 123 45 67">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Hozirgi qarzimiz (so'm)</label>
+          <input type="number" id="inputSupDebt" class="form-input" placeholder="0" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Izoh (Tovar turi)</label>
+          <input type="text" id="inputSupNote" class="form-input" placeholder="Masalan: Ichimliklar, go'sht, non mahsulotlari">
+        </div>
+        <button type="submit" class="btn-primary">
+          💾 Ta'minotchini saqlash
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- FLOATING UNDO SNACKBAR TOAST -->
+  <div id="undoToastContainer" class="undo-toast-container" style="display: none;">
+    <div class="undo-toast-content">
+      <div class="undo-toast-icon">⚡</div>
+      <div class="undo-toast-text">
+        <strong id="undoToastTitle">Amal saqlandi</strong>
+        <span id="undoToastSub">Xato bo'lsa, 5 soniyada bekor qiling</span>
+      </div>
+      <button type="button" id="btnUndoAction" class="btn-undo-action">↩️ Bekor qilish</button>
+    </div>
+    <div class="undo-progress-bar">
+      <div id="undoProgressFill" class="undo-progress-fill"></div>
+    </div>
+  </div>
+
+  <!-- MODAL: BULUTLI ZAXIRA VA SINXRONLASH (CLOUD SYNC & BACKUP) -->
+  <div class="modal-overlay" id="modalCloudBackup">
+    <div class="bottom-sheet">
+      <div class="sheet-handle"></div>
+      <div class="sheet-header">
+        <h2 class="sheet-title">☁️ Bulutli Zaxira va Tiklash</h2>
+        <button class="close-btn" data-close="modalCloudBackup">✕</button>
+      </div>
+
+      <!-- Cloud Status Badge -->
+      <div style="background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: var(--radius-md); padding: 12px 14px; margin-bottom: 16px; display: flex; align-items: center; gap: 12px;">
+        <div style="font-size: 26px;">🛡️</div>
+        <div>
+          <strong style="font-size: 13px; color: #065f46; display: block;">Avtomatik Xavfsizlik Faol</strong>
+          <span style="font-size: 11px; color: #047857;" id="cloudSyncTimestamp">Status: Qarzlar xavfsiz saqlanmoqda</span>
+        </div>
+      </div>
+
+      <div style="margin-bottom: 16px;">
+        <h4 style="font-size: 13px; margin-bottom: 6px;">1. Telegramga Zaxira Yuborish</h4>
+        <p style="font-size: 12px; color: var(--tg-theme-hint-color); margin-bottom: 10px;">
+          Telefon almashtirganingizda yoki kesh tozalanganda qarzlar yo'qolmasligi uchun zaxira nusxasini Telegramdagi "Saqlangan xabarlar" (Saved Messages)ga yuboring.
+        </p>
+        <button class="btn-primary" id="btnSendBackupToTelegram" style="background: #2481cc; margin: 0;">
+          ✈️ Telegramga Zaxira Yuborish
+        </button>
+      </div>
+
+      <hr style="border: none; border-top: 1px solid var(--border-color); margin: 16px 0;">
+
+      <div style="margin-bottom: 16px;">
+        <h4 style="font-size: 13px; margin-bottom: 6px;">2. Fayldan Qayta Tiklash (Restore)</h4>
+        <p style="font-size: 12px; color: var(--tg-theme-hint-color); margin-bottom: 10px;">
+          Avval saqlab olingan zaxira faylini (.json) yuklab barcha mijoz va qarz ma'lumotlarini tiklang:
+        </p>
+        <div style="display: flex; gap: 8px;">
+          <input type="file" id="inputRestoreBackupFile" accept=".json" style="display: none;">
+          <button type="button" class="btn-outline" id="btnTriggerRestoreFile" style="flex: 1;">
+            📂 Faylni Tanlash
+          </button>
+          <button type="button" class="btn-outline" id="btnDownloadBackupFileDirect" style="flex: 1;">
+            📥 Faylga Ko'chirish
+          </button>
+        </div>
+        <div id="restoreStatusMsg" style="font-size: 12px; margin-top: 10px; display: none;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: PESHTAXTA UCHUN QR-KOD PLAKAT -->
+  <div class="modal-overlay" id="modalQRPoster">
+    <div class="bottom-sheet" style="max-height: 94vh;">
+      <div class="sheet-handle"></div>
+      <div class="sheet-header">
+        <h2 class="sheet-title">🖼️ Peshtaxta uchun QR Plakat</h2>
+        <button class="close-btn" data-close="modalQRPoster">✕</button>
+      </div>
+
+      <!-- Printable poster container -->
+      <div class="qr-poster-preview-card" id="printableQRPoster">
+        <div class="poster-header-badge">AQLLI QARZ DAFTARI</div>
+        <h2 class="poster-shop-name" id="posterShopTitle">Mahalla Baraka Do'koni</h2>
+        <p class="poster-tagline">Shaffof hisob-kitob va qulay to'lovlar tizimi</p>
+
+        <!-- Large QR Code SVG -->
+        <div class="poster-qr-wrapper">
+          <svg class="poster-qr-svg" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+            <rect width="200" height="200" fill="#ffffff" rx="12"/>
+            <!-- Top-left -->
+            <rect x="16" y="16" width="48" height="48" rx="6" fill="#1e3a8a"/>
+            <rect x="24" y="24" width="32" height="32" rx="4" fill="#ffffff"/>
+            <rect x="32" y="32" width="16" height="16" rx="2" fill="#2563eb"/>
+            <!-- Top-right -->
+            <rect x="136" y="16" width="48" height="48" rx="6" fill="#1e3a8a"/>
+            <rect x="144" y="24" width="32" height="32" rx="4" fill="#ffffff"/>
+            <rect x="152" y="32" width="16" height="16" rx="2" fill="#2563eb"/>
+            <!-- Bottom-left -->
+            <rect x="16" y="136" width="48" height="48" rx="6" fill="#1e3a8a"/>
+            <rect x="24" y="144" width="32" height="32" rx="4" fill="#ffffff"/>
+            <rect x="32" y="152" width="16" height="16" rx="2" fill="#2563eb"/>
+            <!-- Inner pattern -->
+            <rect x="74" y="20" width="10" height="10" fill="#1e3a8a" rx="2"/>
+            <rect x="94" y="20" width="10" height="10" fill="#1e3a8a" rx="2"/>
+            <rect x="114" y="20" width="10" height="10" fill="#1e3a8a" rx="2"/>
+            <rect x="84" y="36" width="12" height="12" fill="#2563eb" rx="2"/>
+            <rect x="104" y="36" width="12" height="12" fill="#1e3a8a" rx="2"/>
+            <rect x="24" y="76" width="12" height="12" fill="#1e3a8a" rx="2"/>
+            <rect x="44" y="76" width="12" height="12" fill="#2563eb" rx="2"/>
+            <!-- Center branding -->
+            <circle cx="100" cy="100" r="22" fill="#2563eb"/>
+            <path d="M92 100 L110 91 L104 109 L99 102 Z" fill="#ffffff"/>
+            <rect x="136" y="76" width="12" height="12" fill="#2563eb" rx="2"/>
+            <rect x="156" y="76" width="12" height="12" fill="#1e3a8a" rx="2"/>
+            <rect x="74" y="136" width="10" height="10" fill="#1e3a8a" rx="2"/>
+            <rect x="94" y="136" width="10" height="10" fill="#2563eb" rx="2"/>
+            <rect x="114" y="136" width="10" height="10" fill="#1e3a8a" rx="2"/>
+            <rect x="84" y="152" width="12" height="12" fill="#2563eb" rx="2"/>
+            <rect x="104" y="152" width="12" height="12" fill="#1e3a8a" rx="2"/>
+            <rect x="136" y="136" width="14" height="14" fill="#1e3a8a" rx="2"/>
+            <rect x="160" y="154" width="12" height="12" fill="#2563eb" rx="2"/>
+          </svg>
+        </div>
+
+        <div class="poster-instruction">
+          <strong>📲 Kamerangizni yo'naltiring va skaner qiling</strong>
+          <p>Nasiya balansingiz, to'lovlar tarixingizni tekshiring yoki Click/Payme orqali to'lang.</p>
+        </div>
+
+        <!-- Payment badges -->
+        <div class="poster-payment-chips">
+          <span class="poster-badge-pill" style="background: #e0f2fe; color: #0284c7;">⚡ Click</span>
+          <span class="poster-badge-pill" style="background: #ecfdf5; color: #059669;">💳 Payme</span>
+          <span class="poster-badge-pill" style="background: #fef3c7; color: #d97706;">💵 Naqd pul</span>
+        </div>
+      </div>
+
+      <!-- Action buttons -->
+      <div style="display: flex; gap: 8px; margin-top: 14px;">
+        <button class="btn-primary" id="btnPrintPoster" style="flex: 1; margin: 0;">
+          🖨️ Chop Etish (Print)
+        </button>
+        <button class="btn-outline" id="btnSharePosterLink" style="flex: 1;">
+          ✈️ Telegramda Ulashish
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="js/mock_data.js"></script>
+  <script src="js/store.js"></script>
+  <script src="js/reminders.js"></script>
+  <script src="js/voice.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
