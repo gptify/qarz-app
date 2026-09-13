@@ -1209,6 +1209,33 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  // --- URL AUTOFILL (Triggered by Telegram Bot Voice Assistant) ---
+  const urlParams = new URLSearchParams(window.location.search);
+  if (urlParams.get("autofill") === "true") {
+    const cust = urlParams.get("customer") || "";
+    const amt = parseInt(urlParams.get("amount") || "0", 10);
+    const itms = urlParams.get("items") || "";
+
+    setTimeout(() => {
+      openModal("modalAddDebt");
+      if (cust) {
+        const custInput = document.getElementById("inputCustomerCombobox");
+        if (custInput) {
+          custInput.value = cust;
+          custInput.dispatchEvent(new Event("input"));
+        }
+      }
+      if (amt > 0) {
+        document.getElementById("inputDebtAmount").value = amt;
+        updateAmountPreview();
+      }
+      if (itms) {
+        document.getElementById("inputDebtNote").value = itms;
+      }
+      haptic("success");
+    }, 450);
+  }
+
   // Initial Render
   renderStats();
   renderCustomers();
