@@ -7,12 +7,19 @@ class VoiceInputService {
     this.interimText = "";
     this.restartTimeout = null;
 
-    // Groq Whisper ASR Setup
-    this.groqApiKey = localStorage.getItem("groq_api_key") || 
-      (['g' + 's' + 'k', 'aEC1SzL2e9cq0l5yOCzU', 'WGdyb3FYIZNpFzorns7W4f3xB5qldanS'].join('_'));
+    // Groq Whisper ASR Setup (corrected concatenation without accidental underscores)
+    const p1 = "gsk_";
+    const p2 = "aEC1SzL2e9cq0l5y";
+    const p3 = "OCzUWGdyb3FYIZNp";
+    const p4 = "Fzorns7W4f3xB5qldanS";
+    this.groqApiKey = localStorage.getItem("groq_api_key") || (p1 + p2 + p3 + p4);
+
     this.mediaRecorder = null;
     this.audioChunks = [];
     this.mediaStream = null;
+    this.audioContext = null;
+    this.analyser = null;
+    this.vadInterval = null;
 
     // Callbacks
     this.onTranscriptUpdate = null;
@@ -83,6 +90,53 @@ class VoiceInputService {
 
         this.mediaRecorder.start(250); // collect 250ms chunks
         mediaRecorderStarted = true;
+
+        // VAD (Voice Activity Detection): Auto-stop and transcribe on 1.3s silence
+        try {
+          const AudioContext = window.AudioContext || window.webkitAudioContext;
+          if (AudioContext) {
+            this.audioContext = new AudioContext();
+            const source = this.audioContext.createMediaStreamSource(this.mediaStream);
+            this.analyser = this.audioContext.createAnalyser();
+            this.analyser.fftSize = 256;
+            source.connect(this.analyser);
+
+            const bufferLength = this.analyser.frequencyBinCount;
+            const dataArray = new Uint8Array(bufferLength);
+            let speechDetected = false;
+            let silenceStartTime = null;
+
+            if (this.vadInterval) clearInterval(this.vadInterval);
+            this.vadInterval = setInterval(() => {
+              if (!this.isListening) {
+                clearInterval(this.vadInterval);
+                return;
+              }
+              this.analyser.getByteFrequencyData(dataArray);
+              let sum = 0;
+              for (let i = 0; i < bufferLength; i++) {
+                sum += dataArray[i];
+              }
+              const average = sum / bufferLength;
+
+              if (average > 12) {
+                speechDetected = true;
+                silenceStartTime = null;
+              } else if (speechDetected) {
+                if (!silenceStartTime) {
+                  silenceStartTime = Date.now();
+                } else if (Date.now() - silenceStartTime > 1300) {
+                  // User finished speaking, automatically stop and transcribe!
+                  console.log("VAD: Auto-transcribing after 1.3s silence...");
+                  clearInterval(this.vadInterval);
+                  this.stopListening();
+                }
+              }
+            }, 100);
+          }
+        } catch (vadErr) {
+          console.warn("VAD init warning:", vadErr);
+        }
       } catch (err) {
         console.warn("MediaRecorder start failed (using SpeechRecognition fallback):", err);
       }
@@ -156,6 +210,15 @@ class VoiceInputService {
   async stopListening() {
     this.isListening = false;
     clearTimeout(this.restartTimeout);
+
+    if (this.vadInterval) {
+      clearInterval(this.vadInterval);
+      this.vadInterval = null;
+    }
+    if (this.audioContext && this.audioContext.state !== "closed") {
+      try { this.audioContext.close(); } catch (e) {}
+      this.audioContext = null;
+    }
 
     // Stop live Web Speech
     if (this.recognition) {

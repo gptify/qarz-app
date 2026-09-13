@@ -610,7 +610,14 @@ document.addEventListener("DOMContentLoaded", () => {
           btnVoiceRecord.classList.remove("recording");
           voiceLiveIndicator.style.display = "none";
           btnStopMic.style.display = "none";
-          voiceStatusText.textContent = "Mikrofon to'xtatildi. Qoralamani tahrirlashingiz mumkin.";
+          
+          // Auto-apply to form if text was transcribed!
+          if (inputVoiceDraft.value.trim()) {
+            updateDraftPreview(inputVoiceDraft.value);
+            applyDraftToForm(true);
+          } else {
+            voiceStatusText.textContent = "Mikrofon to'xtatildi. Qoralamani tahrirlashingiz mumkin.";
+          }
         }
       },
       onError: (errMsg) => {
@@ -654,8 +661,7 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   // Transfer draft parsed info into the actual form fields
-  btnApplyDraftToForm.addEventListener("click", () => {
-    haptic("success");
+  function applyDraftToForm(isAuto = false) {
     if (!latestParsedDraft || (!latestParsedDraft.amount && !latestParsedDraft.customerName && !latestParsedDraft.items.length)) {
       updateDraftPreview(inputVoiceDraft.value);
     }
@@ -699,8 +705,19 @@ document.addEventListener("DOMContentLoaded", () => {
       stopContinuousVoice();
     }
 
-    // Scroll to form fields smoothly
-    document.getElementById("inputDebtAmount").scrollIntoView({ behavior: "smooth" });
+    if (isAuto) {
+      haptic("success");
+      const custText = latestParsedDraft.customerName || "Mijoz";
+      const sumText = latestParsedDraft.amount > 0 ? formatMoney(latestParsedDraft.amount) : "";
+      voiceStatusText.textContent = `✅ Avtomat to'ldirildi: ${custText} ${sumText ? "· " + sumText : ""}`;
+    } else {
+      haptic("success");
+      document.getElementById("inputDebtAmount").scrollIntoView({ behavior: "smooth" });
+    }
+  }
+
+  btnApplyDraftToForm.addEventListener("click", () => {
+    applyDraftToForm(false);
   });
 
   // Quick Voice Assistant Button on Dashboard
