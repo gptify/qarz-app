@@ -85,7 +85,7 @@ class VoiceInputService {
     this.interimSpeechText = "";
 
     if (!this.isSupported()) {
-      const err = "Telegram Desktop yoki ushbu brauzerda mikrofon (getUserMedia) bloklangan. Telegram chatining o'zida @Qarz_daftarim_bot ga ovozli xabar yuboring!";
+      const err = "Telegram Desktop yoki ushbu brauzerda mikrofon (getUserMedia) bloklangan. Telegram chatining o'zida @aqlli_qarz_bot ga ovozli xabar yuboring!";
       if (this.onError) this.onError(err);
       return false;
     }
@@ -140,7 +140,7 @@ class VoiceInputService {
       if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
         msg = "Telegram Webview mikrofonga ruxsat bermadi. Iltimos, Telegram chatida botga to'g'ridan-to'g'ri ovozli xabar yuboring (100% ishlaydi)!";
       } else if (err.name === "NotSupportedError") {
-        msg = "Telegram Desktop'da mikrofon cheklangan. Iltimos, Telegram chatida @Qarz_daftarim_bot ga ovozli xabar yuboring!";
+        msg = "Telegram Desktop'da mikrofon cheklangan. Iltimos, Telegram chatida @aqlli_qarz_bot ga ovozli xabar yuboring!";
       }
       if (this.onError) this.onError(msg);
       return false;

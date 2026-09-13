@@ -39,7 +39,21 @@ _k2 = "srHlK4o8fjPrcO8Es"
 _k3 = "TvAOpVO_hARfeOtDhCxyaw"
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", _k1 + _k2 + _k3)
 PRIMARY_MODEL = os.getenv("PRIMARY_MODEL", "gemini-3.6-flash")
-FALLBACK_MODELS = ["gemini-flash-latest", "gemini-2.5-flash-lite"]
+FALLBACK_MODELS = ["gemini-flash-latest"]
+
+def clean_amount(val):
+    if isinstance(val, (int, float)):
+        return int(val)
+    if not val:
+        return 0
+    val_str = str(val).lower()
+    raw = re.sub(r'[^\d]', '', val_str)
+    if raw:
+        num = int(raw)
+        if ("ming" in val_str or "min" in val_str) and num < 10000:
+            num *= 1000
+        return num
+    return 0
 
 WEBAPP_URL = "https://gptify.github.io/qarz-app/"
 API_BASE = f"https://api.telegram.org/bot{BOT_TOKEN}"
@@ -405,24 +419,31 @@ def handle_voice_message(chat_id, first_name, voice_obj):
         send_message(chat_id, "❌ Audio faylni yuklashda xatolik yuz berdi.")
         return
 
+    status_msg = send_message(chat_id, "⏳ <i>Ovozingiz qabul qilindi, AI eshitmoqda va qoralama tuzmoqda...</i>")
+    status_msg_id = status_msg.get("result", {}).get("message_id") if (status_msg and status_msg.get("ok")) else None
+
     # 1. First priority: Gemini 3.6 Flash multimodal audio
     parsed = process_voice_with_gemini(audio_bytes, mime_type="audio/ogg")
     
     if parsed and parsed.get("transcription"):
         transcript = parsed.get("transcription", "").strip()
         customer = parsed.get("customer_name") or "Mijoz"
-        amount = int(parsed.get("amount") or 0)
+        amount = clean_amount(parsed.get("amount") or 0)
         items = parsed.get("items") or "Tovarlar"
         action_type = parsed.get("type") or "give"
     else:
         # 2. Fallback to Groq Whisper
         transcript = transcribe_with_groq(audio_bytes, filename="voice.ogg")
         if not transcript:
-            send_message(chat_id, "❌ Ovozni taniy olmadim. Iltimos, mikrofonga yaqinroq va aniqroq gapirib ko'ring.")
+            err_msg = "❌ Ovozni taniy olmadim. Iltimos, mikrofonga yaqinroq va aniqroq gapirib ko'ring."
+            if status_msg_id:
+                edit_message_text(chat_id, status_msg_id, err_msg)
+            else:
+                send_message(chat_id, err_msg)
             return
         parsed_legacy = parse_uzbek_ledger(transcript)
         customer = parsed_legacy["customer"]
-        amount = parsed_legacy["amount"]
+        amount = clean_amount(parsed_legacy["amount"])
         items = parsed_legacy["items"]
         action_type = "give"
 
@@ -441,7 +462,10 @@ def handle_voice_message(chat_id, first_name, voice_obj):
     save_drafts(USER_DRAFTS)
 
     text, markup = render_draft_message(draft_id, USER_DRAFTS[draft_id])
-    send_message(chat_id, text, reply_markup=markup)
+    if status_msg_id:
+        edit_message_text(chat_id, status_msg_id, text, reply_markup=markup)
+    else:
+        send_message(chat_id, text, reply_markup=markup)
 
 def handle_text_ledger(chat_id, text):
     send_chat_action(chat_id, "typing")
