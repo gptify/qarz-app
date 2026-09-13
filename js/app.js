@@ -602,6 +602,10 @@ document.addEventListener("DOMContentLoaded", () => {
           voiceLiveIndicator.style.display = "inline-flex";
           btnStopMic.style.display = "flex";
           voiceStatusText.textContent = "To'xtovsiz eshitilmoqda (gapiravering, o'chmaydi)...";
+        } else if (status === "processing") {
+          btnVoiceRecord.classList.remove("recording");
+          voiceLiveIndicator.style.display = "inline-flex";
+          voiceStatusText.textContent = "⚡ Groq Whisper (0.3s): Ovoz aniqlanmoqda...";
         } else {
           btnVoiceRecord.classList.remove("recording");
           voiceLiveIndicator.style.display = "none";

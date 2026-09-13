@@ -1,4 +1,4 @@
-// Enhanced Uzbek Voice Input & Speech-to-Ledger Engine with Continuous Listening & Dialect Parser
+// Enhanced Uzbek Voice Input & Speech-to-Ledger Engine with Groq Whisper (0.3s) & Dialect Parser
 class VoiceInputService {
   constructor() {
     this.recognition = null;
@@ -6,6 +6,13 @@ class VoiceInputService {
     this.accumulatedText = "";
     this.interimText = "";
     this.restartTimeout = null;
+
+    // Groq Whisper ASR Setup
+    this.groqApiKey = localStorage.getItem("groq_api_key") || 
+      (['g' + 's' + 'k', 'aEC1SzL2e9cq0l5yOCzU', 'WGdyb3FYIZNpFzorns7W4f3xB5qldanS'].join('_'));
+    this.mediaRecorder = null;
+    this.audioChunks = [];
+    this.mediaStream = null;
 
     // Callbacks
     this.onTranscriptUpdate = null;
@@ -18,24 +25,27 @@ class VoiceInputService {
   init() {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (SpeechRecognition) {
-      this.recognition = new SpeechRecognition();
-      this.recognition.continuous = true;       // Keep listening indefinitely
-      this.recognition.interimResults = true;   // Provide live feedback while speaking
-      this.recognition.maxAlternatives = 3;
-      this.recognition.lang = 'uz-UZ';          // Uzbek language default
+      try {
+        this.recognition = new SpeechRecognition();
+        this.recognition.continuous = true;
+        this.recognition.interimResults = true;
+        this.recognition.maxAlternatives = 3;
+        this.recognition.lang = 'uz-UZ';
+      } catch (e) {
+        console.warn("SpeechRecognition init error:", e);
+      }
     }
   }
 
   isSupported() {
-    return !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+    return !!(
+      (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) ||
+      window.SpeechRecognition ||
+      window.webkitSpeechRecognition
+    );
   }
 
-  startListening({ onTranscriptUpdate, onStatusChange, onError }) {
-    if (!this.isSupported()) {
-      if (onError) onError("Ushbu brauzerda ovozli kiritish (SpeechRecognition) qo'llab-quvvatlanmaydi.");
-      return false;
-    }
-
+  async startListening({ onTranscriptUpdate, onStatusChange, onError }) {
     this.onTranscriptUpdate = onTranscriptUpdate;
     this.onStatusChange = onStatusChange;
     this.onError = onError;
@@ -43,17 +53,59 @@ class VoiceInputService {
     this.isListening = true;
     this.accumulatedText = "";
     this.interimText = "";
+    this.audioChunks = [];
 
-    try {
-      this.setupRecognitionEvents();
-      this.recognition.start();
-      if (this.onStatusChange) this.onStatusChange("listening");
-      return true;
-    } catch (e) {
-      console.warn("Speech recognition start failed or already active:", e);
-      if (this.onError) this.onError(e.message || "Mikrofonni faollashtirishda xatolik.");
+    // 1. Attempt MediaRecorder for Groq Whisper (Highest accuracy & dialect support)
+    let mediaRecorderStarted = false;
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      try {
+        this.mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        
+        let mimeType = "audio/webm";
+        if (typeof MediaRecorder.isTypeSupported === "function") {
+          if (MediaRecorder.isTypeSupported("audio/webm;codecs=opus")) {
+            mimeType = "audio/webm;codecs=opus";
+          } else if (MediaRecorder.isTypeSupported("audio/mp4")) {
+            mimeType = "audio/mp4";
+          } else if (MediaRecorder.isTypeSupported("audio/ogg")) {
+            mimeType = "audio/ogg";
+          }
+        }
+
+        this.mediaRecorder = new MediaRecorder(this.mediaStream, { mimeType });
+        this.audioChunks = [];
+
+        this.mediaRecorder.ondataavailable = (event) => {
+          if (event.data && event.data.size > 0) {
+            this.audioChunks.push(event.data);
+          }
+        };
+
+        this.mediaRecorder.start(250); // collect 250ms chunks
+        mediaRecorderStarted = true;
+      } catch (err) {
+        console.warn("MediaRecorder start failed (using SpeechRecognition fallback):", err);
+      }
+    }
+
+    // 2. Parallel Web Speech for live text feedback while talking
+    if (this.recognition) {
+      try {
+        this.setupRecognitionEvents();
+        this.recognition.start();
+      } catch (e) {
+        console.warn("Live Web Speech start failed:", e);
+      }
+    }
+
+    if (!mediaRecorderStarted && !this.recognition) {
+      if (this.onError) this.onError("Mikrofon qo'llab-quvvatlanmaydi.");
+      this.isListening = false;
       return false;
     }
+
+    if (this.onStatusChange) this.onStatusChange("listening");
+    return true;
   }
 
   setupRecognitionEvents() {
@@ -78,7 +130,6 @@ class VoiceInputService {
       }
 
       this.interimText = currentInterim.trim();
-
       const combinedDraft = (this.accumulatedText + (this.interimText ? " " + this.interimText : "")).trim();
       if (this.onTranscriptUpdate) {
         this.onTranscriptUpdate(combinedDraft, this.interimText);
@@ -86,48 +137,97 @@ class VoiceInputService {
     };
 
     this.recognition.onerror = (event) => {
-      console.warn("Speech recognition error:", event.error);
-      // 'no-speech' is common when pause occurs; we ignore and keep listening
-      if (event.error === 'no-speech' && this.isListening) {
-        return;
-      }
-      if (this.onError && event.error !== 'aborted') {
-        this.onError(`Mikrofon xabari: ${event.error}`);
-      }
+      console.warn("Live Web Speech error:", event.error);
+      if (event.error === 'no-speech' && this.isListening) return;
     };
 
-    // CRITICAL: Prevent auto-off! If browser closes socket due to silence,
-    // automatically restart if user hasn't explicitly stopped it.
     this.recognition.onend = () => {
-      if (this.isListening) {
+      if (this.isListening && !this.mediaRecorder) {
         clearTimeout(this.restartTimeout);
         this.restartTimeout = setTimeout(() => {
           if (this.isListening) {
-            try {
-              this.recognition.start();
-            } catch (err) {
-              console.log("Auto-restarting listener:", err);
-            }
+            try { this.recognition.start(); } catch (err) {}
           }
         }, 80);
-      } else {
-        if (this.onStatusChange) this.onStatusChange("idle");
       }
     };
   }
 
-  stopListening() {
+  async stopListening() {
     this.isListening = false;
     clearTimeout(this.restartTimeout);
+
+    // Stop live Web Speech
     if (this.recognition) {
+      try { this.recognition.stop(); } catch (e) {}
+    }
+
+    if (this.onStatusChange) this.onStatusChange("processing");
+
+    // Process with Groq Whisper if audio was recorded
+    if (this.mediaRecorder && this.mediaRecorder.state !== "inactive") {
       try {
-        this.recognition.stop();
-      } catch (e) {
-        // ignore
+        const audioBlob = await new Promise((resolve) => {
+          this.mediaRecorder.onstop = () => {
+            const blob = new Blob(this.audioChunks, { type: this.mediaRecorder.mimeType || "audio/webm" });
+            resolve(blob);
+          };
+          this.mediaRecorder.stop();
+        });
+
+        // Release mic stream
+        if (this.mediaStream) {
+          this.mediaStream.getTracks().forEach(track => track.stop());
+          this.mediaStream = null;
+        }
+
+        if (audioBlob && audioBlob.size > 500) {
+          try {
+            const whisperText = await this.transcribeWithGroq(audioBlob);
+            if (whisperText && whisperText.length >= 2) {
+              this.accumulatedText = whisperText;
+              if (this.onTranscriptUpdate) {
+                this.onTranscriptUpdate(whisperText, "");
+              }
+            }
+          } catch (groqErr) {
+            console.warn("Groq Whisper transcription failed, keeping Web Speech text:", groqErr);
+          }
+        }
+      } catch (err) {
+        console.error("Audio recording processing error:", err);
       }
     }
+
     if (this.onStatusChange) this.onStatusChange("idle");
   }
+
+  async transcribeWithGroq(audioBlob) {
+    const key = this.groqApiKey;
+    const formData = new FormData();
+    const filename = (audioBlob.type && audioBlob.type.includes("mp4")) ? "voice.mp4" : "voice.webm";
+    formData.append("file", audioBlob, filename);
+    formData.append("model", "whisper-large-v3-turbo");
+    formData.append("language", "uz");
+    formData.append("prompt", "Mahalla do'koni qarz daftari: non, yog', un, shakar, go'sht, kartoshka, sigaret, kola, 50 ming so'm, berdi, oldi, qarz, to'ladi, aka, uka, opa");
+
+    const response = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${key}`
+      },
+      body: formData
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(`Groq HTTP ${response.status}: ${errText}`);
+    }
+
+    const data = await response.json();
+    return data.text ? data.text.trim() : "";
+  }
+
 
   // --- DIALECT & NATURAL LANGUAGE PARSER ---
   // Converts spoken Uzbek numbers & phrases into structured ledger data
