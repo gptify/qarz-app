@@ -16,9 +16,16 @@ if sys.platform == "win32":
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
 # Load environment
-BASE_DIR = Path(__file__).resolve().parent.parent.parent
+SCRIPT_DIR = Path(__file__).resolve().parent
+BASE_DIR = SCRIPT_DIR.parent.parent
 load_dotenv(BASE_DIR / ".env")
+load_dotenv(SCRIPT_DIR / ".env")
 load_dotenv()
+
+DATA_DIR = SCRIPT_DIR / "data"
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+DRAFTS_FILE = DATA_DIR / "active_drafts.json"
+LEDGER_FILE = DATA_DIR / "ledger_saved.json"
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN_QARZ", "8994215084:AAGL0EkhqLFHIbpGd_Air9aGsW93KuHqFvA")
 _p1 = "gsk_"
@@ -37,6 +44,37 @@ FALLBACK_MODELS = ["gemini-flash-latest", "gemini-2.5-flash-lite"]
 WEBAPP_URL = "https://gptify.github.io/qarz-app/"
 API_BASE = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
+# Draft and Conversation State storage
+def load_drafts():
+    if DRAFTS_FILE.exists():
+        try:
+            return json.loads(DRAFTS_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+    return {}
+
+def save_drafts(drafts):
+    try:
+        DRAFTS_FILE.write_text(json.dumps(drafts, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception as e:
+        print(f"[-] save_drafts error: {e}", flush=True)
+
+def save_confirmed_tx(tx):
+    records = []
+    if LEDGER_FILE.exists():
+        try:
+            records = json.loads(LEDGER_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            records = []
+    records.append(tx)
+    try:
+        LEDGER_FILE.write_text(json.dumps(records, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception as e:
+        print(f"[-] save_confirmed_tx error: {e}", flush=True)
+
+USER_DRAFTS = load_drafts()
+USER_STATES = {}  # chat_id -> {"action": "waiting_name" | "waiting_amount", "draft_id": "..."}
+
 def send_chat_action(chat_id, action="record_voice"):
     try:
         url = f"{API_BASE}/sendChatAction"
@@ -53,9 +91,34 @@ def send_message(chat_id, text, reply_markup=None):
         if reply_markup:
             payload["reply_markup"] = reply_markup
         req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})
-        urllib.request.urlopen(req, timeout=10)
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return json.loads(resp.read().decode("utf-8"))
     except Exception as e:
         print(f"[-] sendMessage error: {e}", flush=True)
+        return None
+
+def edit_message_text(chat_id, message_id, text, reply_markup=None):
+    try:
+        url = f"{API_BASE}/editMessageText"
+        payload = {"chat_id": chat_id, "message_id": message_id, "text": text, "parse_mode": "HTML"}
+        if reply_markup:
+            payload["reply_markup"] = reply_markup
+        req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})
+        urllib.request.urlopen(req, timeout=10)
+    except Exception as e:
+        print(f"[-] editMessageText error: {e}", flush=True)
+
+def answer_callback_query(callback_query_id, text=None, show_alert=False):
+    try:
+        url = f"{API_BASE}/answerCallbackQuery"
+        payload = {"callback_query_id": callback_query_id}
+        if text:
+            payload["text"] = text
+            payload["show_alert"] = show_alert
+        req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})
+        urllib.request.urlopen(req, timeout=5)
+    except Exception as e:
+        print(f"[-] answerCallbackQuery error: {e}", flush=True)
 
 def get_file_info(file_id):
     try:
@@ -70,7 +133,7 @@ def get_file_info(file_id):
     return None
 
 def process_voice_with_gemini(audio_bytes: bytes, mime_type: str = "audio/ogg") -> dict:
-    """AutoShop AI pattern: Gemini multimodal audio direct recognition & parsing into ledger JSON."""
+    """Gemini 3.6 Flash multimodal audio: precise Uzbek speech recognition & entity parsing."""
     if not GEMINI_API_KEY:
         return None
 
@@ -80,12 +143,16 @@ def process_voice_with_gemini(audio_bytes: bytes, mime_type: str = "audio/ogg") 
         clean_mime = "audio/ogg"
 
     system_prompt = """Siz O'zbekistondagi do'konlarning professional AI hisobchisisiz (Aqlli Qarz Daftari).
-Do'kondor yoki xaridor qarzga berilgan tovarlar yoki qarz to'lovi haqida ovozli xabar yubordi.
-Ushbu audio yozuvni diqqat bilan eshitib, barcha so'zlarni to'liq, ravon o'zbek tilida transkripsiya qiling va quyidagi ma'lumotlarni ajrating:
+Do'kondor yoki xaridor qarzga berilgan tovarlar yoki to'lov haqida ovozli xabar yubordi.
+Ushbu audio yozuvni diqqat bilan eshitib, barcha so'zlarni to'liq, aniq o'zbek tilida transkripsiya qiling va quyidagi ma'lumotlarni ajrating:
 
 1. "transcription": audioda aytilgan to'liq gap (masalan: "Akmal akaga 50 mingga 2 ta non bilan yog' berdim").
-2. "customer_name": Mijozning ismi (masalan: "Akmal aka", "Nodir", "Zilola opa", "Rustam akaga" -> "Rustam aka"). Agar ism aytilmagan bo'lsa "Mijoz".
-3. "amount": Qarz summasi (faqat raqam, so'mda). Masalan: "ellik ming" -> 50000, "bir yuz yigirma ming" -> 120000, "15 ming" -> 15000.
+2. "customer_name": Mijozning ismi.
+   - O'zbek ismlarini xatosiz, to'g'ri bosh harf bilan yozing: Akmal, Anvar, Nodir, Dilshod, Sardor, Rustam, Jamshid, Bobur, Otabek, Shavkat, Ulug'bek, Sherzod, Javohir, Farrux, Alisher, Bekzod, Jasur, Davron, Elyor, Xurshid, Aziz, Sanjar, Shohruh, Doston, Baxtiyor, Muzaffar, Umid, Komil, Ilhom, Zafar; ayollar: Dilnoza, Shahnoza, Nilufar, Gulnoza, Madina, Malika, Feruza, Nargiza, Mohira, Sevara, Zilola, Lola, Rayhon, Ziyoda, Yulduz, Munira, Dildora va h.k.
+   - Hurmat so'zlari aytilgan bo'lsa qoldiring: "Akmal aka", "Nodir aka", "Dilnoza opa", "Rustam tog'a".
+   - Egalik va jo'nalish kelishigi qo'shimchalarini olib tashlang: "Akmalga" -> "Akmal", "Nodir akaga" -> "Nodir aka", "Sardordan" -> "Sardor".
+   - Agar ism noaniq yoki tushunarsiz bo'lsa, "Mijoz" deb qaytaring.
+3. "amount": Qarz summasi (faqat butun son raqam, so'mda). Masalan: "ellik ming" -> 50000, "bir yuz yigirma ming" -> 120000, "15 ming" -> 15000.
 4. "type": "give" (qarz berildi) yoki "receive" (qarz to'landi/qaytarildi).
 5. "items": Olingan tovarlar yoki izoh (masalan: "2 ta non, yog'", "sigaret, kola", "kartoshka, go'sht").
 6. "due_days": Qachongacha berilgani (kunlar soni, sukut bo'yicha 7).
@@ -184,7 +251,7 @@ def parse_uzbek_ledger(text):
     text_clean = text.strip()
     text_lower = text_clean.lower()
 
-    # 1. Amount parsing
+    # Amount parsing
     amount = 0
     word_map = {
         "ellik": 50000, "qirq": 40000, "o'ttiz": 30000, "ottiz": 30000, "yigirma": 20000,
@@ -211,7 +278,7 @@ def parse_uzbek_ledger(text):
             if num > 0:
                 amount = num
 
-    # 2. Customer Name parsing
+    # Customer Name parsing
     customer = "Mijoz"
     name_match = re.search(r'([A-Za-zА-Яа-я\']+)\s+(aka|uka|opa|singil|tog\'a|amaki|akaga|opaga|toga)', text_clean, re.IGNORECASE)
     if name_match:
@@ -224,7 +291,7 @@ def parse_uzbek_ledger(text):
                 customer = clean_w[:-2].capitalize()
                 break
 
-    # 3. Items parsing
+    # Items parsing
     grocery_items = ["non", "yog'", "yog", "shakar", "un", "go'sht", "gosht", "kartoshka", "piyoz", "sabzi", "sigaret", "kola", "suv", "choy", "makaron", "guruch", "tuxum", "sut", "qatiq", "pechenye", "kolbasa", "shampun", "sovun"]
     found_items = [it for it in grocery_items if it in text_lower]
     items_str = ", ".join(found_items) if found_items else "Tovarlar"
@@ -235,6 +302,68 @@ def parse_uzbek_ledger(text):
         "items": items_str,
         "transcript": text_clean
     }
+
+def render_draft_message(draft_id, draft):
+    customer = draft.get("customer", "Mijoz")
+    amount = int(draft.get("amount", 0))
+    items = draft.get("items", "Tovarlar")
+    raw_text = draft.get("transcription", "")
+    action_type = draft.get("action_type", "give")
+
+    amount_display = f"{amount:,} so'm".replace(",", " ") if amount > 0 else "0 so'm"
+    encoded_cust = urllib.parse.quote(customer)
+    encoded_items = urllib.parse.quote(items)
+    webapp_url = f"{WEBAPP_URL}?autofill=true&customer={encoded_cust}&amount={amount}&items={encoded_items}&draft_id={draft_id}&type={action_type}"
+
+    title_emoji = "🟢 Nasiya (Qarz berish)" if action_type == "give" else "🔵 Qarz to'lovi"
+
+    text = (
+        f"🎙️ <b>Ovozli qoralama qabul qilindi!</b> <code>#Q{draft_id}</code>\n\n"
+        f"🗣 <i>\"{raw_text}\"</i>\n\n"
+        f"─────────────────\n"
+        f"📋 <b>Holat:</b> 📝 <b>Qoralama (Tasdiqlanmagan)</b>\n"
+        f"🏷 <b>Turi:</b> {title_emoji}\n"
+        f"👤 <b>Mijoz:</b> <b>{customer}</b>\n"
+        f"💰 <b>Summa:</b> <b>{amount_display}</b>\n"
+        f"📦 <b>Tovarlar:</b> {items}\n"
+        f"📅 <b>Sana:</b> Bugun\n"
+        f"─────────────────\n\n"
+        f"💡 <i>Ism yoki summa xato bo'lsa, quyidagi tugmalar bilan to'g'rilang, so'ng tasdiqlang:</i>"
+    )
+
+    markup = {
+        "inline_keyboard": [
+            [
+                {
+                    "text": f"✅ Tasdiqlash va Saqlash ({amount_display})",
+                    "callback_data": f"confirm_{draft_id}"
+                }
+            ],
+            [
+                {
+                    "text": "✏️ Ismni to'g'rilash",
+                    "callback_data": f"edit_name_{draft_id}"
+                },
+                {
+                    "text": "💰 Summani to'g'rilash",
+                    "callback_data": f"edit_sum_{draft_id}"
+                }
+            ],
+            [
+                {
+                    "text": "📱 Mini Appda ochish & tahrirlash",
+                    "web_app": {"url": webapp_url}
+                }
+            ],
+            [
+                {
+                    "text": "🗑️ Bekor qilish",
+                    "callback_data": f"delete_{draft_id}"
+                }
+            ]
+        ]
+    }
+    return text, markup
 
 def handle_voice_message(chat_id, first_name, voice_obj):
     send_chat_action(chat_id, "record_voice")
@@ -258,7 +387,7 @@ def handle_voice_message(chat_id, first_name, voice_obj):
         send_message(chat_id, "❌ Audio faylni yuklashda xatolik yuz berdi.")
         return
 
-    # 1. First priority: Gemini 3.6 Flash multimodal audio (AutoShop AI architecture)
+    # 1. First priority: Gemini 3.6 Flash multimodal audio
     parsed = process_voice_with_gemini(audio_bytes, mime_type="audio/ogg")
     
     if parsed and parsed.get("transcription"):
@@ -268,7 +397,7 @@ def handle_voice_message(chat_id, first_name, voice_obj):
         items = parsed.get("items") or "Tovarlar"
         action_type = parsed.get("type") or "give"
     else:
-        # 2. Second priority: Fallback to Groq Whisper
+        # 2. Fallback to Groq Whisper
         transcript = transcribe_with_groq(audio_bytes, filename="voice.ogg")
         if not transcript:
             send_message(chat_id, "❌ Ovozni taniy olmadim. Iltimos, mikrofonga yaqinroq va aniqroq gapirib ko'ring.")
@@ -279,52 +408,41 @@ def handle_voice_message(chat_id, first_name, voice_obj):
         items = parsed_legacy["items"]
         action_type = "give"
 
-    process_ledger_and_reply(chat_id, transcript, customer=customer, amount=amount, items=items, action_type=action_type)
+    # Create Draft
+    draft_id = str(int(time.time()))[-4:]
+    USER_DRAFTS[draft_id] = {
+        "draft_id": draft_id,
+        "chat_id": chat_id,
+        "customer": customer,
+        "amount": amount,
+        "items": items,
+        "transcription": transcript,
+        "action_type": action_type,
+        "created_at": time.strftime("%Y-%m-%d %H:%M:%S")
+    }
+    save_drafts(USER_DRAFTS)
+
+    text, markup = render_draft_message(draft_id, USER_DRAFTS[draft_id])
+    send_message(chat_id, text, reply_markup=markup)
 
 def handle_text_ledger(chat_id, text):
     send_chat_action(chat_id, "typing")
     parsed = parse_uzbek_ledger(text)
-    process_ledger_and_reply(chat_id, text, customer=parsed["customer"], amount=parsed["amount"], items=parsed["items"])
-
-def process_ledger_and_reply(chat_id, raw_text, customer="Mijoz", amount=0, items="Tovarlar", action_type="give"):
-    amount_display = f"{amount:,} so'm".replace(",", " ") if amount > 0 else "Aniqlanmadi"
-    encoded_cust = urllib.parse.quote(customer)
-    encoded_items = urllib.parse.quote(items)
-    webapp_url = f"{WEBAPP_URL}?autofill=true&customer={encoded_cust}&amount={amount}&items={encoded_items}&type=debt"
-
-    title_emoji = "🟢 Nasiya (Qarz berish)" if action_type == "give" else "🔵 Qarz to'lovi"
-
-    reply_text = (
-        f"🎙️ <b>Ovozli xabar qabul qilindi va tahlil qilindi!</b>\n\n"
-        f"🗣 <i>\"{raw_text}\"</i>\n\n"
-        f"─────────────────\n"
-        f"📋 <b>Turi:</b> {title_emoji}\n"
-        f"👤 <b>Mijoz:</b> <b>{customer}</b>\n"
-        f"💰 <b>Summa:</b> <b>{amount_display}</b>\n"
-        f"📦 <b>Tovarlar:</b> {items}\n"
-        f"📅 <b>Sana:</b> Bugun\n"
-        f"─────────────────\n\n"
-        f"👇 <b>Qarz daftaringizga kiritish uchun quyidagi tugmani bosing:</b>"
-    )
-
-    markup = {
-        "inline_keyboard": [
-            [
-                {
-                    "text": f"✅ Qarzga saqlash ({amount_display})",
-                    "web_app": {"url": webapp_url}
-                }
-            ],
-            [
-                {
-                    "text": "📒 Qarz Daftarini Ochish",
-                    "web_app": {"url": WEBAPP_URL}
-                }
-            ]
-        ]
+    draft_id = str(int(time.time()))[-4:]
+    USER_DRAFTS[draft_id] = {
+        "draft_id": draft_id,
+        "chat_id": chat_id,
+        "customer": parsed["customer"],
+        "amount": parsed["amount"],
+        "items": parsed["items"],
+        "transcription": text,
+        "action_type": "give",
+        "created_at": time.strftime("%Y-%m-%d %H:%M:%S")
     }
+    save_drafts(USER_DRAFTS)
 
-    send_message(chat_id, reply_text, reply_markup=markup)
+    msg_text, markup = render_draft_message(draft_id, USER_DRAFTS[draft_id])
+    send_message(chat_id, msg_text, reply_markup=markup)
 
 def send_welcome(chat_id, first_name):
     caption = (
@@ -332,10 +450,10 @@ def send_welcome(chat_id, first_name):
         f"<b>Aqlli Qarz Daftari (Mini App)</b>ga xush kelibsiz!\n\n"
         f"Ushbu ilova mahalla do'konlari uchun qarz va to'lovlarni "
         f"Telegramdan chiqmasdan, 100% oson va shaffof yuritish imkonini beradi:\n\n"
-        f"• 🎙 <b>Ovozli xabar yuboring:</b> Shunchaki botga <i>'Anvar akaga 50 ming qarzga yog''</i> deb ovoz yuboring, bot avtomat daftarga yozadi!\n"
+        f"• 🎙 <b>Ovozli xabar yuboring:</b> Shunchaki botga <i>'Anvar akaga 50 ming qarzga yog''</i> deb ovoz yuboring, bot avtomat qoralama tuzadi!\n"
+        f"• 📝 <b>Ovozli Qoralama:</b> Ism yoki summa xato ketsa, bir zumda to'g'rilab, keyin daftarga saqlaysiz!\n"
         f"• 📱 <b>Katta tugmali POS kalkulyator</b>\n"
         f"• ↩️ <b>Xato kiritilsa 'Bekor qilish' (Undo)</b>\n"
-        f"• 📲 <b>Odobli eslatmalar va Click/Payme havolalari</b>\n"
         f"• ☁️ <b>Bulutli zaxiralash</b>\n\n"
         f"Ilovani ochish uchun pastdagi <b>'🚀 Qarz Daftarini Ochish'</b> tugmasini bosing 👇"
     )
@@ -355,7 +473,7 @@ def send_welcome(chat_id, first_name):
 
 def poll_updates():
     offset = 0
-    print("[*] Qarz Daftari bot with Gemini Multimodal + Groq Whisper running...", flush=True)
+    print("[*] Qarz Daftari bot with Gemini Voice Draft System running...", flush=True)
     while True:
         try:
             url = f"{API_BASE}/getUpdates?timeout=20&offset={offset}"
@@ -364,12 +482,105 @@ def poll_updates():
                 data = json.loads(resp.read().decode("utf-8"))
                 for update in data.get("result", []):
                     offset = update["update_id"] + 1
-                    if "message" in update:
+
+                    # 1. Handle Callback Queries (Buttons)
+                    if "callback_query" in update:
+                        cb = update["callback_query"]
+                        cb_id = cb["id"]
+                        cb_data = cb.get("data", "")
+                        chat_id = cb["message"]["chat"]["id"]
+                        message_id = cb["message"]["message_id"]
+
+                        print(f"[Callback] data={cb_data} from chat={chat_id}", flush=True)
+
+                        if cb_data.startswith("confirm_"):
+                            draft_id = cb_data.split("_")[1]
+                            draft = USER_DRAFTS.get(draft_id)
+                            if draft:
+                                save_confirmed_tx(draft)
+                                USER_DRAFTS.pop(draft_id, None)
+                                save_drafts(USER_DRAFTS)
+
+                                amount_display = f"{draft['amount']:,} so'm".replace(",", " ") if draft['amount'] > 0 else "0 so'm"
+                                answer_callback_query(cb_id, text="Qarz saqlandi! ✅")
+
+                                final_text = (
+                                    f"✅ <b>Qarz daftaringizga muvaffaqiyatli saqlandi!</b>\n\n"
+                                    f"👤 <b>Mijoz:</b> <b>{draft['customer']}</b>\n"
+                                    f"💰 <b>Summa:</b> <b>{amount_display}</b>\n"
+                                    f"📦 <b>Tovarlar:</b> {draft['items']}\n"
+                                    f"📅 <b>Sana:</b> Bugun\n\n"
+                                    f"🎉 <i>Ma'lumotlar Qarz daftaringizga kiritildi!</i>"
+                                )
+                                markup = {
+                                    "inline_keyboard": [
+                                        [{"text": "📒 Qarz Daftarini Ochish", "web_app": {"url": WEBAPP_URL}}]
+                                    ]
+                                }
+                                edit_message_text(chat_id, message_id, final_text, reply_markup=markup)
+                            else:
+                                answer_callback_query(cb_id, text="Qoralama topilmadi yoki allaqachon saqlangan.")
+
+                        elif cb_data.startswith("edit_name_"):
+                            draft_id = cb_data.split("_")[2]
+                            USER_STATES[chat_id] = {"action": "waiting_name", "draft_id": draft_id, "message_id": message_id}
+                            answer_callback_query(cb_id)
+                            send_message(chat_id, f"✏️ <b>Qoralama #Q{draft_id}:</b> Mijozning to'g'ri ismini yozib yuboring (masalan: <i>Akmal aka</i> yoki <i>Nodir</i>):")
+
+                        elif cb_data.startswith("edit_sum_"):
+                            draft_id = cb_data.split("_")[2]
+                            USER_STATES[chat_id] = {"action": "waiting_amount", "draft_id": draft_id, "message_id": message_id}
+                            answer_callback_query(cb_id)
+                            send_message(chat_id, f"💰 <b>Qoralama #Q{draft_id}:</b> To'g'ri summani yozib yuboring (masalan: <i>50000</i> yoki <i>50 ming</i>):")
+
+                        elif cb_data.startswith("delete_"):
+                            draft_id = cb_data.split("_")[1]
+                            USER_DRAFTS.pop(draft_id, None)
+                            save_drafts(USER_DRAFTS)
+                            answer_callback_query(cb_id, text="Qoralama bekor qilindi")
+                            edit_message_text(chat_id, message_id, f"❌ <b>Qoralama #Q{draft_id} bekor qilindi va o'chirildi.</b>")
+
+                    # 2. Handle Messages (Voice or Text)
+                    elif "message" in update:
                         msg = update["message"]
                         chat_id = msg["chat"]["id"]
                         first_name = msg.get("from", {}).get("first_name", "Foydalanuvchi")
                         text = msg.get("text", "")
 
+                        # Check if user is in an active prompt state (e.g. correcting name or amount)
+                        if chat_id in USER_STATES and text:
+                            state = USER_STATES[chat_id]
+                            draft_id = state.get("draft_id")
+                            action = state.get("action")
+                            draft = USER_DRAFTS.get(draft_id)
+
+                            if draft:
+                                if action == "waiting_name":
+                                    new_name = text.strip()
+                                    draft["customer"] = new_name
+                                    save_drafts(USER_DRAFTS)
+                                    del USER_STATES[chat_id]
+                                    send_message(chat_id, f"✅ Mijoz ismi <b>{new_name}</b> ga to'g'rilandi!")
+                                    updated_text, markup = render_draft_message(draft_id, draft)
+                                    send_message(chat_id, updated_text, reply_markup=markup)
+                                    continue
+
+                                elif action == "waiting_amount":
+                                    parsed_num = parse_uzbek_ledger(text)["amount"]
+                                    if parsed_num > 0:
+                                        draft["amount"] = parsed_num
+                                        save_drafts(USER_DRAFTS)
+                                        del USER_STATES[chat_id]
+                                        amt_disp = f"{parsed_num:,} so'm".replace(",", " ")
+                                        send_message(chat_id, f"✅ Summa <b>{amt_disp}</b> ga to'g'rilandi!")
+                                        updated_text, markup = render_draft_message(draft_id, draft)
+                                        send_message(chat_id, updated_text, reply_markup=markup)
+                                        continue
+                                    else:
+                                        send_message(chat_id, "⚠️ Summa aniqlanmadi. Iltimos, raqamda yozing (masalan: 65000 yoki 65 ming):")
+                                        continue
+
+                        # Standard message handlers
                         if "voice" in msg or "audio" in msg:
                             voice_obj = msg.get("voice") or msg.get("audio")
                             print(f"[Voice] From: {first_name} ({chat_id}) Duration: {voice_obj.get('duration')}s", flush=True)
@@ -380,6 +591,7 @@ def poll_updates():
                         elif len(text.strip()) > 3:
                             print(f"[Text Ledger] From: {first_name} ({chat_id}) Text: {text}", flush=True)
                             handle_text_ledger(chat_id, text)
+
         except Exception as e:
             print(f"[Poll Exception]: {e}", flush=True)
             time.sleep(2)

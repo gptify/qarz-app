@@ -1235,12 +1235,13 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // --- URL AUTOFILL (Triggered by Telegram Bot Voice Assistant) ---
+  // --- URL AUTOFILL & DRAFT IMPORT (Triggered by Telegram Bot Voice Assistant) ---
   const urlParams = new URLSearchParams(window.location.search);
   if (urlParams.get("autofill") === "true") {
     const cust = urlParams.get("customer") || "";
     const amt = parseInt(urlParams.get("amount") || "0", 10);
     const itms = urlParams.get("items") || "";
+    const draftId = urlParams.get("draft_id") || "";
 
     setTimeout(() => {
       openModal("modalAddDebt");
@@ -1258,6 +1259,26 @@ document.addEventListener("DOMContentLoaded", () => {
       if (itms) {
         document.getElementById("inputDebtNote").value = itms;
       }
+
+      // Populate draft card in Draft Studio
+      const draftBox = document.getElementById("inputVoiceDraft");
+      if (draftBox) {
+        draftBox.value = `${cust}ga ${amt > 0 ? formatMoney(amt) : ""} qarz. ${itms}`;
+      }
+      const prevCust = document.getElementById("previewCustomerName");
+      const prevAmt = document.getElementById("previewAmount");
+      const prevItems = document.getElementById("previewItems");
+      if (prevCust) prevCust.textContent = cust || "—";
+      if (prevAmt) prevAmt.textContent = amt > 0 ? formatMoney(amt) : "—";
+      if (prevItems) prevItems.textContent = itms || "—";
+
+      const statusEl = document.getElementById("voiceStatusText");
+      if (statusEl) {
+        const dText = draftId ? ` (#Q${draftId})` : "";
+        statusEl.innerHTML = `📝 <b>Ovozli qoralama${dText} yuklandi!</b> Kerak bo'lsa ism yoki summani tahrirlang va 'Qarzga saqlash'ni bosing.`;
+        statusEl.style.color = "#2563eb";
+      }
+
       haptic("success");
     }, 450);
   }
