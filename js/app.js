@@ -589,11 +589,29 @@ document.addEventListener("DOMContentLoaded", () => {
         btnStopMic.textContent = `⏹️ To'xtatish va O'girish (${mm}:${ss})`;
         voiceStatusText.textContent = `🎙️ Yozilmoqda (${mm}:${ss})... Gapirib bo'lgach 'To'xtatish'ni bosing`;
       },
-      onTranscriptUpdate: (fullDraft) => {
-        inputVoiceDraft.value = fullDraft;
-        updateDraftPreview(fullDraft);
+      onAudioRecorded: (blob) => {
+        const audioPlayback = document.getElementById("audioPlayback");
+        const audioPreviewBox = document.getElementById("audioPreviewBox");
+        if (audioPlayback && audioPreviewBox && blob) {
+          try {
+            audioPlayback.src = URL.createObjectURL(blob);
+            audioPreviewBox.style.display = "block";
+          } catch (e) {}
+        }
       },
-      onStatusChange: (status, detail) => {
+      onTranscriptUpdate: (fullDraft, parsedResult) => {
+        inputVoiceDraft.value = fullDraft;
+        if (parsedResult) {
+          latestParsedDraft = parsedResult;
+          previewCustomerName.textContent = parsedResult.customerName || "Topilmadi";
+          previewAmount.textContent = parsedResult.amount > 0 ? formatMoney(parsedResult.amount) : "Topilmadi";
+          previewItems.textContent = parsedResult.items && parsedResult.items.length > 0 ? parsedResult.items.join(", ") : "Izohsiz";
+        } else {
+          updateDraftPreview(fullDraft);
+        }
+      },
+      onStatusChange: (status, detail, parsedResult) => {
+        const micHelpBanner = document.getElementById("micHelpBanner");
         if (status === "recording") {
           btnVoiceRecord.classList.add("recording");
           btnVoiceRecord.textContent = "🔴";
@@ -601,19 +619,24 @@ document.addEventListener("DOMContentLoaded", () => {
           btnStopMic.style.display = "inline-flex";
           btnStopMic.textContent = "⏹️ To'xtatish va O'girish (00:00)";
           voiceStatusText.textContent = "🎙️ Yozilmoqda... Gapirib bo'lgach 'To'xtatish'ni bosing";
+          if (micHelpBanner) micHelpBanner.style.display = "none";
         } else if (status === "processing") {
           btnVoiceRecord.classList.remove("recording");
           btnVoiceRecord.textContent = "⏳";
           voiceLiveIndicator.style.display = "inline-flex";
           btnStopMic.style.display = "none";
-          voiceStatusText.textContent = "⚡ Groq Whisper (0.3s): Ovoz matnga o'girilmoqda...";
+          voiceStatusText.textContent = "⚡ AI ovozni tahlil qilmoqda (Gemini 3.6 Flash / Groq)...";
         } else if (status === "done") {
           btnVoiceRecord.classList.remove("recording");
           btnVoiceRecord.textContent = "🎙️";
           voiceLiveIndicator.style.display = "none";
           btnStopMic.style.display = "none";
+          voiceStatusText.textContent = "✅ Ovoz matnga o'girildi va maydonlar to'ldirildi!";
           
-          if (inputVoiceDraft.value.trim()) {
+          if (parsedResult) {
+            latestParsedDraft = parsedResult;
+            applyDraftToForm(true);
+          } else if (inputVoiceDraft.value.trim()) {
             updateDraftPreview(inputVoiceDraft.value);
             applyDraftToForm(true);
           }
@@ -623,10 +646,13 @@ document.addEventListener("DOMContentLoaded", () => {
           voiceLiveIndicator.style.display = "none";
           btnStopMic.style.display = "none";
           voiceStatusText.textContent = "❌ " + (detail || "Xatolik yuz berdi");
+          if (micHelpBanner) micHelpBanner.style.display = "block";
         }
       },
       onError: (errMsg) => {
         voiceStatusText.textContent = "❌ " + errMsg;
+        const micHelpBanner = document.getElementById("micHelpBanner");
+        if (micHelpBanner) micHelpBanner.style.display = "block";
       }
     });
   }
