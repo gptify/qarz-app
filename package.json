@@ -1,0 +1,9 @@
+﻿{
+  "name": "qarz-app",
+  "version": "1.0.0",
+  "description": "Aqlli Qarz Daftari - Telegram Mini App",
+  "main": "api/webhook.js",
+  "scripts": {
+    "start": "python bot.py"
+  }
+}
