@@ -73,7 +73,7 @@ def save_confirmed_tx(tx):
         print(f"[-] save_confirmed_tx error: {e}", flush=True)
 
 USER_DRAFTS = load_drafts()
-USER_STATES = {}  # chat_id -> {"action": "waiting_name" | "waiting_amount", "draft_id": "..."}
+USER_STATES = {}  # chat_id -> {"action": "waiting_name"|"waiting_amount"|"waiting_items"|"waiting_full", "draft_id": "..."}
 
 def send_chat_action(chat_id, action="record_voice"):
     try:
@@ -148,23 +148,23 @@ Ushbu audio yozuvni diqqat bilan eshitib, barcha so'zlarni to'liq, aniq o'zbek t
 
 1. "transcription": audioda aytilgan to'liq gap (masalan: "Akmal akaga 50 mingga 2 ta non bilan yog' berdim").
 2. "customer_name": Mijozning ismi.
-   - O'zbek ismlarini xatosiz, to'g'ri bosh harf bilan yozing: Akmal, Anvar, Nodir, Dilshod, Sardor, Rustam, Jamshid, Bobur, Otabek, Shavkat, Ulug'bek, Sherzod, Javohir, Farrux, Alisher, Bekzod, Jasur, Davron, Elyor, Xurshid, Aziz, Sanjar, Shohruh, Doston, Baxtiyor, Muzaffar, Umid, Komil, Ilhom, Zafar; ayollar: Dilnoza, Shahnoza, Nilufar, Gulnoza, Madina, Malika, Feruza, Nargiza, Mohira, Sevara, Zilola, Lola, Rayhon, Ziyoda, Yulduz, Munira, Dildora va h.k.
+   - O'zbek ismlarini xatosiz, to'g'ri bosh harf bilan yozing: Akmal, Anvar, Nodir, Dilshod, Sardor, Rustam, Jamshid, Bobur, Otabek, Shavkat, Ulug'bek, Sherzod, Javohir, Farrux, Alisher, Bekzod, Jasur, Davron, Elyor, Xurshid, Aziz, Sanjar, Shohruh, Doston, Baxtiyor, Muzaffar, Umid, Komil, Ilhom, Zafar, Davlat; ayollar: Dilnoza, Shahnoza, Nilufar, Gulnoza, Madina, Malika, Feruza, Nargiza, Mohira, Sevara, Zilola, Lola, Rayhon, Ziyoda, Yulduz, Munira, Dildora va h.k.
    - Hurmat so'zlari aytilgan bo'lsa qoldiring: "Akmal aka", "Nodir aka", "Dilnoza opa", "Rustam tog'a".
-   - Egalik va jo'nalish kelishigi qo'shimchalarini olib tashlang: "Akmalga" -> "Akmal", "Nodir akaga" -> "Nodir aka", "Sardordan" -> "Sardor".
-   - Agar ism noaniq yoki tushunarsiz bo'lsa, "Mijoz" deb qaytaring.
-3. "amount": Qarz summasi (faqat butun son raqam, so'mda). Masalan: "ellik ming" -> 50000, "bir yuz yigirma ming" -> 120000, "15 ming" -> 15000.
-4. "type": "give" (qarz berildi) yoki "receive" (qarz to'landi/qaytarildi).
-5. "items": Olingan tovarlar yoki izoh (masalan: "2 ta non, yog'", "sigaret, kola", "kartoshka, go'sht").
+   - Egalik va jo'nalish kelishigi qo'shimchalarini olib tashlang: "Akmalga" -> "Akmal", "Davlatga" -> "Davlat", "Nodir akaga" -> "Nodir aka", "Sardordan" -> "Sardor".
+   - Agar ism aytilmagan yoki noaniq bo'lsa, "Mijoz" deb qaytaring.
+3. "amount": Qarz summasi (faqat butun son raqam, so'mda). Masalan: "ellik ming" -> 50000, "500 ming" -> 500000, "bir yuz yigirma ming" -> 120000, "15 ming" -> 15000.
+4. "type": "give" (qarz berildi / nasiya) yoki "receive" (qarz to'landi / qaytarildi).
+5. "items": Olingan tovarlar yoki izoh (masalan: "2 ta non, yog'", "sigaret, kola", "yog', kolbasa, 4 ta non").
 6. "due_days": Qachongacha berilgani (kunlar soni, sukut bo'yicha 7).
 
 Qat'iy faqat JSON formatida qaytaring:
 {
   "is_clear": true,
   "transcription": "audioda eshitilgan gap",
-  "customer_name": "Akmal aka",
-  "amount": 50000,
+  "customer_name": "Davlat",
+  "amount": 500000,
   "type": "give",
-  "items": "2 ta non, yog'",
+  "items": "yog', kolbasa, 4 ta non",
   "due_days": 7
 }
 
@@ -256,7 +256,8 @@ def parse_uzbek_ledger(text):
     word_map = {
         "ellik": 50000, "qirq": 40000, "o'ttiz": 30000, "ottiz": 30000, "yigirma": 20000,
         "o'n": 10000, "on": 10000, "oltmish": 60000, "yetmish": 70000, "sakson": 80000,
-        "to'qson": 90000, "toqson": 90000, "yuz": 100000, "bir yuz": 100000, "ikki yuz": 200000
+        "to'qson": 90000, "toqson": 90000, "yuz": 100000, "bir yuz": 100000, "ikki yuz": 200000,
+        "uch yuz": 300000, "to'rt yuz": 400000, "besh yuz": 500000
     }
     for w, val in word_map.items():
         if w in text_lower:
@@ -316,19 +317,20 @@ def render_draft_message(draft_id, draft):
     webapp_url = f"{WEBAPP_URL}?autofill=true&customer={encoded_cust}&amount={amount}&items={encoded_items}&draft_id={draft_id}&type={action_type}"
 
     title_emoji = "🟢 Nasiya (Qarz berish)" if action_type == "give" else "🔵 Qarz to'lovi"
+    toggle_label = "Qarz to'loviga o'tkazish" if action_type == "give" else "Nasiyaga o'tkazish"
 
     text = (
         f"🎙️ <b>Ovozli qoralama qabul qilindi!</b> <code>#Q{draft_id}</code>\n\n"
         f"🗣 <i>\"{raw_text}\"</i>\n\n"
         f"─────────────────\n"
-        f"📋 <b>Holat:</b> 📝 <b>Qoralama (Tasdiqlanmagan)</b>\n"
+        f"📋 <b>Holat:</b> 📝 <b>Qoralama (Ko'rib chiqilmoqda)</b>\n"
         f"🏷 <b>Turi:</b> {title_emoji}\n"
         f"👤 <b>Mijoz:</b> <b>{customer}</b>\n"
         f"💰 <b>Summa:</b> <b>{amount_display}</b>\n"
         f"📦 <b>Tovarlar:</b> {items}\n"
         f"📅 <b>Sana:</b> Bugun\n"
         f"─────────────────\n\n"
-        f"💡 <i>Ism yoki summa xato bo'lsa, quyidagi tugmalar bilan to'g'rilang, so'ng tasdiqlang:</i>"
+        f"💡 <i>Qoralamani tasdiqlashdan oldin barcha qismlarini to'g'rilashingiz mumkin:</i>"
     )
 
     markup = {
@@ -341,23 +343,39 @@ def render_draft_message(draft_id, draft):
             ],
             [
                 {
-                    "text": "✏️ Ismni to'g'rilash",
+                    "text": f"👤 Ism: {customer[:11]} ✏️",
                     "callback_data": f"edit_name_{draft_id}"
                 },
                 {
-                    "text": "💰 Summani to'g'rilash",
+                    "text": f"💰 Summa ✏️",
                     "callback_data": f"edit_sum_{draft_id}"
                 }
             ],
             [
                 {
-                    "text": "📱 Mini Appda ochish & tahrirlash",
+                    "text": f"📦 Tovarlar / Izoh ✏️",
+                    "callback_data": f"edit_items_{draft_id}"
+                },
+                {
+                    "text": f"🔄 {toggle_label}",
+                    "callback_data": f"toggle_type_{draft_id}"
+                }
+            ],
+            [
+                {
+                    "text": "✍️ Butun qoralamani matnda tahrirlash",
+                    "callback_data": f"edit_full_{draft_id}"
+                }
+            ],
+            [
+                {
+                    "text": "📱 Mini Appda to'liq tekshirish & saqlash",
                     "web_app": {"url": webapp_url}
                 }
             ],
             [
                 {
-                    "text": "🗑️ Bekor qilish",
+                    "text": "🗑️ Qoralamani o'chirish",
                     "callback_data": f"delete_{draft_id}"
                 }
             ]
@@ -451,7 +469,7 @@ def send_welcome(chat_id, first_name):
         f"Ushbu ilova mahalla do'konlari uchun qarz va to'lovlarni "
         f"Telegramdan chiqmasdan, 100% oson va shaffof yuritish imkonini beradi:\n\n"
         f"• 🎙 <b>Ovozli xabar yuboring:</b> Shunchaki botga <i>'Anvar akaga 50 ming qarzga yog''</i> deb ovoz yuboring, bot avtomat qoralama tuzadi!\n"
-        f"• 📝 <b>Ovozli Qoralama:</b> Ism yoki summa xato ketsa, bir zumda to'g'rilab, keyin daftarga saqlaysiz!\n"
+        f"• 📝 <b>Ovozli Qoralama:</b> Ism, summa, tovarlar yoki turni to'g'rilab, keyin daftarga saqlaysiz!\n"
         f"• 📱 <b>Katta tugmali POS kalkulyator</b>\n"
         f"• ↩️ <b>Xato kiritilsa 'Bekor qilish' (Undo)</b>\n"
         f"• ☁️ <b>Bulutli zaxiralash</b>\n\n"
@@ -473,7 +491,7 @@ def send_welcome(chat_id, first_name):
 
 def poll_updates():
     offset = 0
-    print("[*] Qarz Daftari bot with Gemini Voice Draft System running...", flush=True)
+    print("[*] Qarz Daftari bot with Full Draft Review System running...", flush=True)
     while True:
         try:
             url = f"{API_BASE}/getUpdates?timeout=20&offset={offset}"
@@ -502,10 +520,12 @@ def poll_updates():
                                 save_drafts(USER_DRAFTS)
 
                                 amount_display = f"{draft['amount']:,} so'm".replace(",", " ") if draft['amount'] > 0 else "0 so'm"
+                                action_name = "Nasiya (Qarz)" if draft.get("action_type") == "give" else "Qarz to'lovi"
                                 answer_callback_query(cb_id, text="Qarz saqlandi! ✅")
 
                                 final_text = (
                                     f"✅ <b>Qarz daftaringizga muvaffaqiyatli saqlandi!</b>\n\n"
+                                    f"📋 <b>Turi:</b> {action_name}\n"
                                     f"👤 <b>Mijoz:</b> <b>{draft['customer']}</b>\n"
                                     f"💰 <b>Summa:</b> <b>{amount_display}</b>\n"
                                     f"📦 <b>Tovarlar:</b> {draft['items']}\n"
@@ -533,6 +553,40 @@ def poll_updates():
                             answer_callback_query(cb_id)
                             send_message(chat_id, f"💰 <b>Qoralama #Q{draft_id}:</b> To'g'ri summani yozib yuboring (masalan: <i>50000</i> yoki <i>50 ming</i>):")
 
+                        elif cb_data.startswith("edit_items_"):
+                            draft_id = cb_data.split("_")[2]
+                            USER_STATES[chat_id] = {"action": "waiting_items", "draft_id": draft_id, "message_id": message_id}
+                            answer_callback_query(cb_id)
+                            send_message(chat_id, f"📦 <b>Qoralama #Q{draft_id}:</b> Tovarlar yoki izohni yozib yuboring (masalan: <i>2 ta non, yog', sigaret</i>):")
+
+                        elif cb_data.startswith("toggle_type_"):
+                            draft_id = cb_data.split("_")[2]
+                            draft = USER_DRAFTS.get(draft_id)
+                            if draft:
+                                draft["action_type"] = "receive" if draft.get("action_type") == "give" else "give"
+                                save_drafts(USER_DRAFTS)
+                                new_label = "🟢 Qarz berish" if draft["action_type"] == "give" else "🔵 Qarz to'lovi"
+                                answer_callback_query(cb_id, text=f"Turi o'zgartirildi: {new_label}")
+                                updated_text, markup = render_draft_message(draft_id, draft)
+                                edit_message_text(chat_id, message_id, updated_text, reply_markup=markup)
+
+                        elif cb_data.startswith("edit_full_"):
+                            draft_id = cb_data.split("_")[2]
+                            draft = USER_DRAFTS.get(draft_id)
+                            if draft:
+                                USER_STATES[chat_id] = {"action": "waiting_full", "draft_id": draft_id, "message_id": message_id}
+                                answer_callback_query(cb_id)
+                                cur_type = "Qarz berish" if draft.get("action_type") == "give" else "Qarz to'lovi"
+                                template = (
+                                    f"✍️ <b>Qoralama #Q{draft_id} ni to'liq tahrirlash:</b>\n\n"
+                                    f"Quyidagi matndan nusxa olib, kerakli joylarini o'zgartiring va bitta xabarda yuboring:\n\n"
+                                    f"<code>Mijoz: {draft['customer']}\n"
+                                    f"Summa: {draft['amount']}\n"
+                                    f"Tovarlar: {draft['items']}\n"
+                                    f"Turi: {cur_type}</code>"
+                                )
+                                send_message(chat_id, template)
+
                         elif cb_data.startswith("delete_"):
                             draft_id = cb_data.split("_")[1]
                             USER_DRAFTS.pop(draft_id, None)
@@ -547,7 +601,7 @@ def poll_updates():
                         first_name = msg.get("from", {}).get("first_name", "Foydalanuvchi")
                         text = msg.get("text", "")
 
-                        # Check if user is in an active prompt state (e.g. correcting name or amount)
+                        # Check if user is in an active prompt state
                         if chat_id in USER_STATES and text:
                             state = USER_STATES[chat_id]
                             draft_id = state.get("draft_id")
@@ -579,6 +633,41 @@ def poll_updates():
                                     else:
                                         send_message(chat_id, "⚠️ Summa aniqlanmadi. Iltimos, raqamda yozing (masalan: 65000 yoki 65 ming):")
                                         continue
+
+                                elif action == "waiting_items":
+                                    new_items = text.strip()
+                                    draft["items"] = new_items
+                                    save_drafts(USER_DRAFTS)
+                                    del USER_STATES[chat_id]
+                                    send_message(chat_id, f"✅ Tovarlar / izoh <b>{new_items}</b> ga to'g'rilandi!")
+                                    updated_text, markup = render_draft_message(draft_id, draft)
+                                    send_message(chat_id, updated_text, reply_markup=markup)
+                                    continue
+
+                                elif action == "waiting_full":
+                                    # Parse multi-line edit
+                                    lines = text.strip().split("\n")
+                                    for l in lines:
+                                        l = l.strip()
+                                        if re.match(r'^(mijoz|ism)\s*:', l, re.IGNORECASE):
+                                            val = re.sub(r'^(mijoz|ism)\s*:\s*', '', l, flags=re.IGNORECASE).strip()
+                                            if val: draft["customer"] = val
+                                        elif re.match(r'^(summa|narx)\s*:', l, re.IGNORECASE):
+                                            val_amt = parse_uzbek_ledger(l)["amount"]
+                                            if val_amt > 0: draft["amount"] = val_amt
+                                        elif re.match(r'^(tovarlar|izoh|mahsulotlar)\s*:', l, re.IGNORECASE):
+                                            val_it = re.sub(r'^(tovarlar|izoh|mahsulotlar)\s*:\s*', '', l, flags=re.IGNORECASE).strip()
+                                            if val_it: draft["items"] = val_it
+                                        elif re.match(r'^turi\s*:', l, re.IGNORECASE):
+                                            l_low = l.lower()
+                                            draft["action_type"] = "receive" if ("to'lov" in l_low or "tolov" in l_low or "qaytar" in l_low) else "give"
+
+                                    save_drafts(USER_DRAFTS)
+                                    del USER_STATES[chat_id]
+                                    send_message(chat_id, "✅ Butun qoralama muvaffaqiyatli yangilandi!")
+                                    updated_text, markup = render_draft_message(draft_id, draft)
+                                    send_message(chat_id, updated_text, reply_markup=markup)
+                                    continue
 
                         # Standard message handlers
                         if "voice" in msg or "audio" in msg:
