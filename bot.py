@@ -7,6 +7,8 @@ import re
 import base64
 import urllib.request
 import urllib.parse
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -709,5 +711,27 @@ def poll_updates():
             print(f"[Poll Exception]: {e}", flush=True)
             time.sleep(2)
 
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.end_headers()
+        self.wfile.write(b"Aqlli Qarz Daftari Bot is active and running 24/7 on Render!\n")
+
+    def log_message(self, format, *args):
+        # Suppress periodic health check logs
+        pass
+
+def run_health_server():
+    port = int(os.getenv("PORT", 8080))
+    try:
+        server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
+        print(f"[*] Healthcheck HTTP server listening on port {port}...", flush=True)
+        server.serve_forever()
+    except Exception as e:
+        print(f"[-] Health server notice: {e}", flush=True)
+
 if __name__ == "__main__":
+    health_thread = threading.Thread(target=run_health_server, daemon=True)
+    health_thread.start()
     poll_updates()
