@@ -1,275 +1,179 @@
 // Enhanced Uzbek Voice Input & Speech-to-Ledger Engine with Groq Whisper (0.3s) & Dialect Parser
 class VoiceInputService {
   constructor() {
-    this.recognition = null;
-    this.isListening = false;
-    this.accumulatedText = "";
-    this.interimText = "";
-    this.restartTimeout = null;
-
-    // Groq Whisper ASR Setup (corrected concatenation without accidental underscores)
+    // Groq Whisper ASR API Key
     const p1 = "gsk_";
     const p2 = "aEC1SzL2e9cq0l5y";
     const p3 = "OCzUWGdyb3FYIZNp";
     const p4 = "Fzorns7W4f3xB5qldanS";
     this.groqApiKey = localStorage.getItem("groq_api_key") || (p1 + p2 + p3 + p4);
 
+    this.isRecording = false;
     this.mediaRecorder = null;
     this.audioChunks = [];
     this.mediaStream = null;
-    this.audioContext = null;
-    this.analyser = null;
-    this.vadInterval = null;
+    this.recordTimer = null;
+    this.secondsRecorded = 0;
 
     // Callbacks
     this.onTranscriptUpdate = null;
     this.onStatusChange = null;
     this.onError = null;
-
-    this.init();
-  }
-
-  init() {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (SpeechRecognition) {
-      try {
-        this.recognition = new SpeechRecognition();
-        this.recognition.continuous = true;
-        this.recognition.interimResults = true;
-        this.recognition.maxAlternatives = 3;
-        this.recognition.lang = 'uz-UZ';
-      } catch (e) {
-        console.warn("SpeechRecognition init error:", e);
-      }
-    }
+    this.onTimerTick = null;
   }
 
   isSupported() {
-    return !!(
-      (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) ||
-      window.SpeechRecognition ||
-      window.webkitSpeechRecognition
-    );
+    return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
   }
 
-  async startListening({ onTranscriptUpdate, onStatusChange, onError }) {
+  async startRecording({ onTranscriptUpdate, onStatusChange, onError, onTimerTick }) {
     this.onTranscriptUpdate = onTranscriptUpdate;
     this.onStatusChange = onStatusChange;
     this.onError = onError;
+    this.onTimerTick = onTimerTick;
 
-    this.isListening = true;
-    this.accumulatedText = "";
-    this.interimText = "";
-    this.audioChunks = [];
-
-    // 1. Attempt MediaRecorder for Groq Whisper (Highest accuracy & dialect support)
-    let mediaRecorderStarted = false;
-    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-      try {
-        this.mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        
-        let mimeType = "audio/webm";
-        if (typeof MediaRecorder.isTypeSupported === "function") {
-          if (MediaRecorder.isTypeSupported("audio/webm;codecs=opus")) {
-            mimeType = "audio/webm;codecs=opus";
-          } else if (MediaRecorder.isTypeSupported("audio/mp4")) {
-            mimeType = "audio/mp4";
-          } else if (MediaRecorder.isTypeSupported("audio/ogg")) {
-            mimeType = "audio/ogg";
-          }
-        }
-
-        this.mediaRecorder = new MediaRecorder(this.mediaStream, { mimeType });
-        this.audioChunks = [];
-
-        this.mediaRecorder.ondataavailable = (event) => {
-          if (event.data && event.data.size > 0) {
-            this.audioChunks.push(event.data);
-          }
-        };
-
-        this.mediaRecorder.start(250); // collect 250ms chunks
-        mediaRecorderStarted = true;
-
-        // VAD (Voice Activity Detection): Auto-stop and transcribe on 1.3s silence
-        try {
-          const AudioContext = window.AudioContext || window.webkitAudioContext;
-          if (AudioContext) {
-            this.audioContext = new AudioContext();
-            const source = this.audioContext.createMediaStreamSource(this.mediaStream);
-            this.analyser = this.audioContext.createAnalyser();
-            this.analyser.fftSize = 256;
-            source.connect(this.analyser);
-
-            const bufferLength = this.analyser.frequencyBinCount;
-            const dataArray = new Uint8Array(bufferLength);
-            let speechDetected = false;
-            let silenceStartTime = null;
-
-            if (this.vadInterval) clearInterval(this.vadInterval);
-            this.vadInterval = setInterval(() => {
-              if (!this.isListening) {
-                clearInterval(this.vadInterval);
-                return;
-              }
-              this.analyser.getByteFrequencyData(dataArray);
-              let sum = 0;
-              for (let i = 0; i < bufferLength; i++) {
-                sum += dataArray[i];
-              }
-              const average = sum / bufferLength;
-
-              if (average > 12) {
-                speechDetected = true;
-                silenceStartTime = null;
-              } else if (speechDetected) {
-                if (!silenceStartTime) {
-                  silenceStartTime = Date.now();
-                } else if (Date.now() - silenceStartTime > 1300) {
-                  // User finished speaking, automatically stop and transcribe!
-                  console.log("VAD: Auto-transcribing after 1.3s silence...");
-                  clearInterval(this.vadInterval);
-                  this.stopListening();
-                }
-              }
-            }, 100);
-          }
-        } catch (vadErr) {
-          console.warn("VAD init warning:", vadErr);
-        }
-      } catch (err) {
-        console.warn("MediaRecorder start failed (using SpeechRecognition fallback):", err);
-      }
-    }
-
-    // 2. Parallel Web Speech for live text feedback while talking
-    if (this.recognition) {
-      try {
-        this.setupRecognitionEvents();
-        this.recognition.start();
-      } catch (e) {
-        console.warn("Live Web Speech start failed:", e);
-      }
-    }
-
-    if (!mediaRecorderStarted && !this.recognition) {
-      if (this.onError) this.onError("Mikrofon qo'llab-quvvatlanmaydi.");
-      this.isListening = false;
+    if (!this.isSupported()) {
+      const err = "Qurilmangizda yoki ushbu brauzerda ovoz yozish (getUserMedia) qo'llab-quvvatlanmaydi.";
+      if (this.onError) this.onError(err);
       return false;
     }
 
-    if (this.onStatusChange) this.onStatusChange("listening");
-    return true;
-  }
+    try {
+      this.mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
-  setupRecognitionEvents() {
-    if (!this.recognition) return;
-
-    this.recognition.onstart = () => {
-      this.isListening = true;
-      if (this.onStatusChange) this.onStatusChange("listening");
-    };
-
-    this.recognition.onresult = (event) => {
-      let currentInterim = "";
-
-      for (let i = event.resultIndex; i < event.results.length; ++i) {
-        const item = event.results[i];
-        const text = item[0].transcript;
-        if (item.isFinal) {
-          this.accumulatedText += (this.accumulatedText ? " " : "") + text.trim();
-        } else {
-          currentInterim += " " + text;
+      let mimeType = "";
+      if (typeof MediaRecorder !== "undefined" && typeof MediaRecorder.isTypeSupported === "function") {
+        if (MediaRecorder.isTypeSupported("audio/webm;codecs=opus")) {
+          mimeType = "audio/webm;codecs=opus";
+        } else if (MediaRecorder.isTypeSupported("audio/webm")) {
+          mimeType = "audio/webm";
+        } else if (MediaRecorder.isTypeSupported("audio/mp4")) {
+          mimeType = "audio/mp4";
+        } else if (MediaRecorder.isTypeSupported("audio/ogg")) {
+          mimeType = "audio/ogg";
         }
       }
 
-      this.interimText = currentInterim.trim();
-      const combinedDraft = (this.accumulatedText + (this.interimText ? " " + this.interimText : "")).trim();
-      if (this.onTranscriptUpdate) {
-        this.onTranscriptUpdate(combinedDraft, this.interimText);
-      }
-    };
+      this.mediaRecorder = mimeType ? new MediaRecorder(this.mediaStream, { mimeType }) : new MediaRecorder(this.mediaStream);
+      this.audioChunks = [];
 
-    this.recognition.onerror = (event) => {
-      console.warn("Live Web Speech error:", event.error);
-      if (event.error === 'no-speech' && this.isListening) return;
-    };
+      this.mediaRecorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          this.audioChunks.push(event.data);
+        }
+      };
 
-    this.recognition.onend = () => {
-      if (this.isListening && !this.mediaRecorder) {
-        clearTimeout(this.restartTimeout);
-        this.restartTimeout = setTimeout(() => {
-          if (this.isListening) {
-            try { this.recognition.start(); } catch (err) {}
-          }
-        }, 80);
+      this.mediaRecorder.start(200);
+      this.isRecording = true;
+      this.secondsRecorded = 0;
+
+      if (this.onStatusChange) this.onStatusChange("recording");
+
+      // Recording timer
+      if (this.recordTimer) clearInterval(this.recordTimer);
+      this.recordTimer = setInterval(() => {
+        this.secondsRecorded++;
+        if (this.onTimerTick) this.onTimerTick(this.secondsRecorded);
+      }, 1000);
+
+      return true;
+    } catch (err) {
+      console.error("Mic access error:", err);
+      let msg = "Mikrofondan foydalanishda xatolik: " + (err.message || err.name);
+      if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
+        msg = "Mikrofonga ruxsat berilmadi. Iltimos, Telegram yoki brauzer sozlamalarida mikrofonga ruxsat bering.";
       }
-    };
+      if (this.onError) this.onError(msg);
+      return false;
+    }
   }
 
-  async stopListening() {
-    this.isListening = false;
-    clearTimeout(this.restartTimeout);
+  async stopRecordingAndTranscribe() {
+    if (!this.isRecording && !this.mediaRecorder) return;
+    this.isRecording = false;
 
-    if (this.vadInterval) {
-      clearInterval(this.vadInterval);
-      this.vadInterval = null;
-    }
-    if (this.audioContext && this.audioContext.state !== "closed") {
-      try { this.audioContext.close(); } catch (e) {}
-      this.audioContext = null;
-    }
-
-    // Stop live Web Speech
-    if (this.recognition) {
-      try { this.recognition.stop(); } catch (e) {}
+    if (this.recordTimer) {
+      clearInterval(this.recordTimer);
+      this.recordTimer = null;
     }
 
     if (this.onStatusChange) this.onStatusChange("processing");
 
-    // Process with Groq Whisper if audio was recorded
-    if (this.mediaRecorder && this.mediaRecorder.state !== "inactive") {
-      try {
-        const audioBlob = await new Promise((resolve) => {
-          this.mediaRecorder.onstop = () => {
-            const blob = new Blob(this.audioChunks, { type: this.mediaRecorder.mimeType || "audio/webm" });
-            resolve(blob);
-          };
+    try {
+      // 1. Await audio blob from mediaRecorder
+      const audioBlob = await new Promise((resolve, reject) => {
+        if (!this.mediaRecorder || this.mediaRecorder.state === "inactive") {
+          const blob = new Blob(this.audioChunks, { type: this.mediaRecorder?.mimeType || "audio/webm" });
+          resolve(blob);
+          return;
+        }
+
+        const timeout = setTimeout(() => {
+          const blob = new Blob(this.audioChunks, { type: this.mediaRecorder?.mimeType || "audio/webm" });
+          resolve(blob);
+        }, 800);
+
+        this.mediaRecorder.onstop = () => {
+          clearTimeout(timeout);
+          const blob = new Blob(this.audioChunks, { type: this.mediaRecorder?.mimeType || "audio/webm" });
+          resolve(blob);
+        };
+
+        try {
           this.mediaRecorder.stop();
-        });
-
-        // Release mic stream
-        if (this.mediaStream) {
-          this.mediaStream.getTracks().forEach(track => track.stop());
-          this.mediaStream = null;
+        } catch (e) {
+          clearTimeout(timeout);
+          resolve(new Blob(this.audioChunks, { type: "audio/webm" }));
         }
+      });
 
-        if (audioBlob && audioBlob.size > 500) {
-          try {
-            const whisperText = await this.transcribeWithGroq(audioBlob);
-            if (whisperText && whisperText.length >= 2) {
-              this.accumulatedText = whisperText;
-              if (this.onTranscriptUpdate) {
-                this.onTranscriptUpdate(whisperText, "");
-              }
-            }
-          } catch (groqErr) {
-            console.warn("Groq Whisper transcription failed, keeping Web Speech text:", groqErr);
-          }
-        }
-      } catch (err) {
-        console.error("Audio recording processing error:", err);
+      // 2. Stop mic hardware tracks
+      if (this.mediaStream) {
+        this.mediaStream.getTracks().forEach(track => track.stop());
+        this.mediaStream = null;
       }
-    }
 
-    if (this.onStatusChange) this.onStatusChange("idle");
+      if (!audioBlob || audioBlob.size < 300) {
+        throw new Error("Ovoz juda qisqa bo'ldi yoki yozilmadi. Iltimos, 2-3 soniya gapirib qayta urinib ko'ring.");
+      }
+
+      // 3. Transcribe with Groq Whisper
+      const text = await this.transcribeWithGroq(audioBlob);
+
+      if (!text || text.trim().length === 0) {
+        throw new Error("Ovoz eshitilmadi yoki bo'sh keldi. Aniqroq gapirib qayta urinib ko'ring.");
+      }
+
+      if (this.onTranscriptUpdate) {
+        this.onTranscriptUpdate(text);
+      }
+
+      if (this.onStatusChange) this.onStatusChange("done", text);
+      return text;
+    } catch (err) {
+      console.error("Transcription error:", err);
+      const msg = err.message || "Ovozni tahlil qilishda xatolik yuz berdi.";
+      if (this.onError) this.onError(msg);
+      if (this.onStatusChange) this.onStatusChange("error", msg);
+      return null;
+    }
   }
 
   async transcribeWithGroq(audioBlob) {
     const key = this.groqApiKey;
     const formData = new FormData();
-    const filename = (audioBlob.type && audioBlob.type.includes("mp4")) ? "voice.mp4" : "voice.webm";
-    formData.append("file", audioBlob, filename);
+
+    let ext = "webm";
+    const mime = (audioBlob.type || "").toLowerCase();
+    if (mime.includes("mp4") || mime.includes("m4a") || mime.includes("aac")) {
+      ext = "mp4";
+    } else if (mime.includes("ogg")) {
+      ext = "ogg";
+    } else if (mime.includes("wav")) {
+      ext = "wav";
+    }
+
+    formData.append("file", audioBlob, `voice_recording.${ext}`);
     formData.append("model", "whisper-large-v3-turbo");
     formData.append("language", "uz");
     formData.append("prompt", "Mahalla do'koni qarz daftari: non, yog', un, shakar, go'sht, kartoshka, sigaret, kola, 50 ming so'm, berdi, oldi, qarz, to'ladi, aka, uka, opa");
@@ -283,13 +187,19 @@ class VoiceInputService {
     });
 
     if (!response.ok) {
-      const errText = await response.text();
-      throw new Error(`Groq HTTP ${response.status}: ${errText}`);
+      const errText = await response.text().catch(() => "");
+      let errMsg = `Groq Server xatosi (${response.status})`;
+      try {
+        const errJson = JSON.parse(errText);
+        if (errJson?.error?.message) errMsg = errJson.error.message;
+      } catch (e) {}
+      throw new Error("AI: " + errMsg);
     }
 
     const data = await response.json();
     return data.text ? data.text.trim() : "";
   }
+
 
 
   // --- DIALECT & NATURAL LANGUAGE PARSER ---

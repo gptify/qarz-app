@@ -575,72 +575,77 @@ document.addEventListener("DOMContentLoaded", () => {
     previewItems.textContent = parsed.items.length > 0 ? parsed.items.join(", ") : "Izohsiz";
   }
 
-  function startContinuousVoice() {
+  function startVoiceRecording() {
     if (!window.voiceService.isSupported()) {
-      const sample = prompt(
-        "Brauzeringizda ovozli kiritish (Speech API) yo'q yoki ruxsat berilmagan.\n" +
-        "Sinov uchun qoralama matn yozing (shevalar ham ishlaydi):\n\n" +
-        "Masalan: 'Anvar akaga qirq besh min somga 2 ta non va yog''"
-      );
-      if (sample) {
-        inputVoiceDraft.value = sample;
-        updateDraftPreview(sample);
-      }
+      alert("Qurilmangizda yoki ushbu brauzerda ovoz yozish (MediaRecorder) qo'llab-quvvatlanmaydi.");
       return;
     }
 
     haptic("medium");
-    window.voiceService.startListening({
-      onTranscriptUpdate: (fullDraft, interim) => {
+    window.voiceService.startRecording({
+      onTimerTick: (sec) => {
+        const mm = String(Math.floor(sec / 60)).padStart(2, "0");
+        const ss = String(sec % 60).padStart(2, "0");
+        btnStopMic.textContent = `⏹️ To'xtatish va O'girish (${mm}:${ss})`;
+        voiceStatusText.textContent = `🎙️ Yozilmoqda (${mm}:${ss})... Gapirib bo'lgach 'To'xtatish'ni bosing`;
+      },
+      onTranscriptUpdate: (fullDraft) => {
         inputVoiceDraft.value = fullDraft;
         updateDraftPreview(fullDraft);
-        voiceStatusText.textContent = interim ? `Jonli: "${interim}"` : "Yozilmoqda...";
       },
-      onStatusChange: (status) => {
-        if (status === "listening") {
+      onStatusChange: (status, detail) => {
+        if (status === "recording") {
           btnVoiceRecord.classList.add("recording");
+          btnVoiceRecord.textContent = "🔴";
           voiceLiveIndicator.style.display = "inline-flex";
-          btnStopMic.style.display = "flex";
-          voiceStatusText.textContent = "To'xtovsiz eshitilmoqda (gapiravering, o'chmaydi)...";
+          btnStopMic.style.display = "inline-flex";
+          btnStopMic.textContent = "⏹️ To'xtatish va O'girish (00:00)";
+          voiceStatusText.textContent = "🎙️ Yozilmoqda... Gapirib bo'lgach 'To'xtatish'ni bosing";
         } else if (status === "processing") {
           btnVoiceRecord.classList.remove("recording");
+          btnVoiceRecord.textContent = "⏳";
           voiceLiveIndicator.style.display = "inline-flex";
-          voiceStatusText.textContent = "⚡ Groq Whisper (0.3s): Ovoz aniqlanmoqda...";
-        } else {
+          btnStopMic.style.display = "none";
+          voiceStatusText.textContent = "⚡ Groq Whisper (0.3s): Ovoz matnga o'girilmoqda...";
+        } else if (status === "done") {
           btnVoiceRecord.classList.remove("recording");
+          btnVoiceRecord.textContent = "🎙️";
           voiceLiveIndicator.style.display = "none";
           btnStopMic.style.display = "none";
           
-          // Auto-apply to form if text was transcribed!
           if (inputVoiceDraft.value.trim()) {
             updateDraftPreview(inputVoiceDraft.value);
             applyDraftToForm(true);
-          } else {
-            voiceStatusText.textContent = "Mikrofon to'xtatildi. Qoralamani tahrirlashingiz mumkin.";
           }
+        } else if (status === "error") {
+          btnVoiceRecord.classList.remove("recording");
+          btnVoiceRecord.textContent = "🎙️";
+          voiceLiveIndicator.style.display = "none";
+          btnStopMic.style.display = "none";
+          voiceStatusText.textContent = "❌ " + (detail || "Xatolik yuz berdi");
         }
       },
       onError: (errMsg) => {
-        voiceStatusText.textContent = errMsg;
+        voiceStatusText.textContent = "❌ " + errMsg;
       }
     });
   }
 
-  function stopContinuousVoice() {
+  function stopVoiceRecording() {
     haptic("light");
-    window.voiceService.stopListening();
+    window.voiceService.stopRecordingAndTranscribe();
   }
 
   btnVoiceRecord.addEventListener("click", () => {
-    if (window.voiceService.isListening) {
-      stopContinuousVoice();
+    if (window.voiceService.isRecording) {
+      stopVoiceRecording();
     } else {
-      startContinuousVoice();
+      startVoiceRecording();
     }
   });
 
   btnStopMic.addEventListener("click", () => {
-    stopContinuousVoice();
+    stopVoiceRecording();
   });
 
   // Real-time re-parse when user edits the draft text directly
@@ -727,7 +732,7 @@ document.addEventListener("DOMContentLoaded", () => {
       haptic("medium");
       openModal("modalAddDebt");
       setTimeout(() => {
-        startContinuousVoice();
+        startVoiceRecording();
       }, 400);
     });
   }
