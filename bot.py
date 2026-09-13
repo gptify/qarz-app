@@ -55,7 +55,7 @@ def get_file_info(file_id):
         print(f"[-] getFile error: {e}")
     return None
 
-def transcribe_with_groq(audio_bytes, filename="voice.oga"):
+def transcribe_with_groq(audio_bytes, filename="voice.ogg"):
     try:
         boundary = "----WebKitFormBoundary7MA4YWxkTrZu0gW"
         body = (
@@ -172,7 +172,7 @@ def handle_voice_message(chat_id, first_name, voice_obj):
         return
 
     # Transcribe with Groq Whisper
-    transcript = transcribe_with_groq(audio_bytes, filename="voice.oga")
+    transcript = transcribe_with_groq(audio_bytes, filename="voice.ogg")
     if not transcript:
         send_message(chat_id, "❌ Ovozni taniy olmadim. Iltimos, mikrofonga yaqinroq va aniqroq gapirib ko'ring.")
         return

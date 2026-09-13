@@ -81,7 +81,9 @@ class VoiceInputService {
       console.error("Mic access error:", err);
       let msg = "Mikrofondan foydalanishda xatolik: " + (err.message || err.name);
       if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
-        msg = "Mikrofonga ruxsat berilmadi. Iltimos, Telegram yoki brauzer sozlamalarida mikrofonga ruxsat bering.";
+        msg = "Telegram Webview mikrofonga ruxsat bermadi. Iltimos, Telegram chatida botga to'g'ridan-to'g'ri ovozli xabar yuboring (100% ishlaydi)!";
+      } else if (err.name === "NotSupportedError") {
+        msg = "Telegram Webview'da mikrofon bloklangan. Iltimos, Telegram chatining o'zida botga oddiy ovozli xabar yuboring!";
       }
       if (this.onError) this.onError(msg);
       return false;
@@ -166,11 +168,14 @@ class VoiceInputService {
     let ext = "webm";
     const mime = (audioBlob.type || "").toLowerCase();
     if (mime.includes("mp4") || mime.includes("m4a") || mime.includes("aac")) {
-      ext = "mp4";
-    } else if (mime.includes("ogg")) {
+      ext = "m4a";
+    } else if (mime.includes("ogg") || mime.includes("opus")) {
       ext = "ogg";
     } else if (mime.includes("wav")) {
       ext = "wav";
+    } else {
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+      ext = isIOS ? "m4a" : "webm";
     }
 
     formData.append("file", audioBlob, `voice_recording.${ext}`);
