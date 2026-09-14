@@ -8,9 +8,19 @@ import base64
 import urllib.request
 import urllib.parse
 import threading
+import collections
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from dotenv import load_dotenv
+
+START_TIME = time.time()
+LOG_BUFFER = collections.deque(maxlen=200)
+
+def log_msg(msg):
+    ts = time.strftime("%Y-%m-%d %H:%M:%S")
+    line = f"[{ts}] {msg}"
+    print(line, flush=True)
+    LOG_BUFFER.append(line)
 
 # Fix Windows console UTF-8
 if sys.platform == "win32":
@@ -515,9 +525,250 @@ def send_welcome(chat_id, first_name):
 
     send_message(chat_id, caption, reply_markup=markup)
 
+def process_single_update(update):
+    try:
+        # 1. Handle Callback Queries (Buttons)
+        if "callback_query" in update:
+            cb = update["callback_query"]
+            cb_id = cb["id"]
+            cb_data = cb.get("data", "")
+            chat_id = cb["message"]["chat"]["id"]
+            message_id = cb["message"]["message_id"]
+
+            log_msg(f"[Callback] data={cb_data} from chat={chat_id}")
+
+            if cb_data.startswith("confirm_"):
+                draft_id = cb_data.split("_")[1]
+                draft = USER_DRAFTS.get(draft_id)
+                if draft:
+                    save_confirmed_tx(draft)
+                    USER_DRAFTS.pop(draft_id, None)
+                    save_drafts(USER_DRAFTS)
+
+                    amount_display = f"{draft['amount']:,} so'm".replace(",", " ") if draft['amount'] > 0 else "0 so'm"
+                    action_name = "Nasiya (Qarz)" if draft.get("action_type") == "give" else "Qarz to'lovi"
+                    answer_callback_query(cb_id, text="Qarz saqlandi! ✅")
+
+                    final_text = (
+                        f"✅ <b>Qarz daftaringizga muvaffaqiyatli saqlandi!</b>\n\n"
+                        f"📋 <b>Turi:</b> {action_name}\n"
+                        f"👤 <b>Mijoz:</b> <b>{draft['customer']}</b>\n"
+                        f"💰 <b>Summa:</b> <b>{amount_display}</b>\n"
+                        f"📦 <b>Tovarlar:</b> {draft['items']}\n"
+                        f"📅 <b>Sana:</b> Bugun\n\n"
+                        f"🎉 <i>Ma'lumotlar Qarz daftaringizga kiritildi!</i>"
+                    )
+                    markup = {
+                        "inline_keyboard": [
+                            [{"text": "📒 Qarz Daftarini Ochish", "web_app": {"url": WEBAPP_URL}}]
+                        ]
+                    }
+                    edit_message_text(chat_id, message_id, final_text, reply_markup=markup)
+                else:
+                    answer_callback_query(cb_id, text="Qoralama topilmadi yoki allaqachon saqlangan.")
+
+            elif cb_data.startswith("edit_name_"):
+                draft_id = cb_data.split("_")[2]
+                USER_STATES[chat_id] = {"action": "waiting_name", "draft_id": draft_id, "message_id": message_id}
+                answer_callback_query(cb_id)
+                send_message(chat_id, f"✏️ <b>Qoralama #Q{draft_id}:</b> Mijozning to'g'ri ismini yozib yuboring (masalan: <i>Akmal aka</i> yoki <i>Nodir</i>):")
+
+            elif cb_data.startswith("edit_sum_"):
+                draft_id = cb_data.split("_")[2]
+                USER_STATES[chat_id] = {"action": "waiting_amount", "draft_id": draft_id, "message_id": message_id}
+                answer_callback_query(cb_id)
+                send_message(chat_id, f"💰 <b>Qoralama #Q{draft_id}:</b> To'g'ri summani yozib yuboring (masalan: <i>50000</i> yoki <i>50 ming</i>):")
+
+            elif cb_data.startswith("edit_items_"):
+                draft_id = cb_data.split("_")[2]
+                USER_STATES[chat_id] = {"action": "waiting_items", "draft_id": draft_id, "message_id": message_id}
+                answer_callback_query(cb_id)
+                send_message(chat_id, f"📦 <b>Qoralama #Q{draft_id}:</b> Tovarlar yoki izohni yozib yuboring (masalan: <i>2 ta non, yog', sigaret</i>):")
+
+            elif cb_data.startswith("toggle_type_"):
+                draft_id = cb_data.split("_")[2]
+                draft = USER_DRAFTS.get(draft_id)
+                if draft:
+                    draft["action_type"] = "receive" if draft.get("action_type") == "give" else "give"
+                    save_drafts(USER_DRAFTS)
+                    new_label = "🟢 Qarz berish" if draft["action_type"] == "give" else "🔵 Qarz to'lovi"
+                    answer_callback_query(cb_id, text=f"Turi o'zgartirildi: {new_label}")
+                    updated_text, markup = render_draft_message(draft_id, draft)
+                    edit_message_text(chat_id, message_id, updated_text, reply_markup=markup)
+
+            elif cb_data.startswith("edit_full_"):
+                draft_id = cb_data.split("_")[2]
+                draft = USER_DRAFTS.get(draft_id)
+                if draft:
+                    USER_STATES[chat_id] = {"action": "waiting_full", "draft_id": draft_id, "message_id": message_id}
+                    answer_callback_query(cb_id)
+                    cur_type = "Qarz berish" if draft.get("action_type") == "give" else "Qarz to'lovi"
+                    template = (
+                        f"✍️ <b>Qoralama #Q{draft_id} ni to'liq tahrirlash:</b>\n\n"
+                        f"Quyidagi matndan nusxa olib, kerakli joylarini o'zgartiring va bitta xabarda yuboring:\n\n"
+                        f"<code>Mijoz: {draft['customer']}\n"
+                        f"Summa: {draft['amount']}\n"
+                        f"Tovarlar: {draft['items']}\n"
+                        f"Turi: {cur_type}</code>"
+                    )
+                    send_message(chat_id, template)
+
+            elif cb_data.startswith("delete_"):
+                draft_id = cb_data.split("_")[1]
+                USER_DRAFTS.pop(draft_id, None)
+                save_drafts(USER_DRAFTS)
+                answer_callback_query(cb_id, text="Qoralama bekor qilindi")
+                edit_message_text(chat_id, message_id, f"❌ <b>Qoralama #Q{draft_id} bekor qilindi va o'chirildi.</b>")
+
+        # 2. Handle Messages (Voice or Text)
+        elif "message" in update:
+            msg = update["message"]
+            chat_id = msg["chat"]["id"]
+            first_name = msg.get("from", {}).get("first_name", "Foydalanuvchi")
+            text = msg.get("text", "")
+
+            # Check if user is in an active prompt state
+            if chat_id in USER_STATES and text:
+                state = USER_STATES[chat_id]
+                draft_id = state.get("draft_id")
+                action = state.get("action")
+                draft = USER_DRAFTS.get(draft_id)
+
+                if draft:
+                    if action == "waiting_name":
+                        new_name = text.strip()
+                        draft["customer"] = new_name
+                        save_drafts(USER_DRAFTS)
+                        del USER_STATES[chat_id]
+                        send_message(chat_id, f"✅ Mijoz ismi <b>{new_name}</b> ga to'g'rilandi!")
+                        updated_text, markup = render_draft_message(draft_id, draft)
+                        send_message(chat_id, updated_text, reply_markup=markup)
+                        return
+
+                    elif action == "waiting_amount":
+                        parsed_num = parse_uzbek_ledger(text)["amount"]
+                        if parsed_num > 0:
+                            draft["amount"] = parsed_num
+                            save_drafts(USER_DRAFTS)
+                            del USER_STATES[chat_id]
+                            amt_disp = f"{parsed_num:,} so'm".replace(",", " ")
+                            send_message(chat_id, f"✅ Summa <b>{amt_disp}</b> ga to'g'rilandi!")
+                            updated_text, markup = render_draft_message(draft_id, draft)
+                            send_message(chat_id, updated_text, reply_markup=markup)
+                            return
+                        else:
+                            send_message(chat_id, "⚠️ Summa aniqlanmadi. Iltimos, raqamda yozing (masalan: 65000 yoki 65 ming):")
+                            return
+
+                    elif action == "waiting_items":
+                        new_items = text.strip()
+                        draft["items"] = new_items
+                        save_drafts(USER_DRAFTS)
+                        del USER_STATES[chat_id]
+                        send_message(chat_id, f"✅ Tovarlar / izoh <b>{new_items}</b> ga to'g'rilandi!")
+                        updated_text, markup = render_draft_message(draft_id, draft)
+                        send_message(chat_id, updated_text, reply_markup=markup)
+                        return
+
+                    elif action == "waiting_full":
+                        # Parse multi-line edit
+                        lines = text.strip().split("\n")
+                        for l in lines:
+                            l = l.strip()
+                            if re.match(r'^(mijoz|ism)\s*:', l, re.IGNORECASE):
+                                val = re.sub(r'^(mijoz|ism)\s*:\s*', '', l, flags=re.IGNORECASE).strip()
+                                if val: draft["customer"] = val
+                            elif re.match(r'^(summa|narx)\s*:', l, re.IGNORECASE):
+                                val_amt = parse_uzbek_ledger(l)["amount"]
+                                if val_amt > 0: draft["amount"] = val_amt
+                            elif re.match(r'^(tovarlar|izoh|mahsulotlar)\s*:', l, re.IGNORECASE):
+                                val_it = re.sub(r'^(tovarlar|izoh|mahsulotlar)\s*:\s*', '', l, flags=re.IGNORECASE).strip()
+                                if val_it: draft["items"] = val_it
+                            elif re.match(r'^turi\s*:', l, re.IGNORECASE):
+                                l_low = l.lower()
+                                draft["action_type"] = "receive" if ("to'lov" in l_low or "tolov" in l_low or "qaytar" in l_low) else "give"
+
+                        save_drafts(USER_DRAFTS)
+                        del USER_STATES[chat_id]
+                        send_message(chat_id, "✅ Butun qoralama muvaffaqiyatli yangilandi!")
+                        updated_text, markup = render_draft_message(draft_id, draft)
+                        send_message(chat_id, updated_text, reply_markup=markup)
+                        return
+
+            # Standard message handlers
+            if "voice" in msg or "audio" in msg:
+                voice_obj = msg.get("voice") or msg.get("audio")
+                log_msg(f"[Voice] From: {first_name} ({chat_id}) Duration: {voice_obj.get('duration')}s")
+                handle_voice_message(chat_id, first_name, voice_obj)
+            elif text.startswith("/"):
+                log_msg(f"[Command] From: {first_name} ({chat_id}) Text: {text}")
+                send_welcome(chat_id, first_name)
+            elif len(text.strip()) > 3:
+                log_msg(f"[Text Ledger] From: {first_name} ({chat_id}) Text: {text}")
+                handle_text_ledger(chat_id, text)
+    except Exception as ex:
+        log_msg(f"[-] process_single_update exception: {ex}")
+
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        clean_path = self.path.split("?")[0]
+        if clean_path == "/logs":
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.end_headers()
+            log_text = "\n".join(LOG_BUFFER) if LOG_BUFFER else "No logs recorded yet."
+            self.wfile.write(log_text.encode("utf-8"))
+        elif clean_path == "/status":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            status = {
+                "ok": True,
+                "uptime_seconds": int(time.time() - START_TIME),
+                "active_drafts": len(USER_DRAFTS),
+                "server": "Render Webhook & KeepAlive"
+            }
+            self.wfile.write(json.dumps(status, indent=2).encode("utf-8"))
+        else:
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(b"Aqlli Qarz Daftari Bot is active and running 24/7 on Render!\n")
+
+    def do_POST(self):
+        content_length = int(self.headers.get("Content-Length", 0))
+        post_data = self.rfile.read(content_length)
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain")
+        self.end_headers()
+        self.wfile.write(b"OK")
+
+        if post_data:
+            try:
+                update = json.loads(post_data.decode("utf-8"))
+                threading.Thread(target=process_single_update, args=(update,), daemon=True).start()
+            except Exception as e:
+                log_msg(f"[-] Webhook parse error: {e}")
+
+    def log_message(self, format, *args):
+        # Suppress periodic health check logs
+        pass
+
+def keep_alive_worker():
+    render_url = os.getenv("RENDER_EXTERNAL_URL", "https://qarz-app-bot.onrender.com")
+    while True:
+        time.sleep(9 * 60)
+        try:
+            req = urllib.request.Request(render_url, headers={"User-Agent": "RenderKeepAlive/1.0"})
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                pass
+            log_msg("[KeepAlive] Self ping sent to prevent Render sleep")
+        except Exception as e:
+            log_msg(f"[KeepAlive Notice]: {e}")
+
 def poll_updates():
     offset = 0
-    print("[*] Qarz Daftari bot with Full Draft Review System running...", flush=True)
+    log_msg("[*] Starting Telegram polling loop (fallback mode)...")
     while True:
         try:
             url = f"{API_BASE}/getUpdates?timeout=20&offset={offset}"
@@ -526,212 +777,26 @@ def poll_updates():
                 data = json.loads(resp.read().decode("utf-8"))
                 for update in data.get("result", []):
                     offset = update["update_id"] + 1
-
-                    # 1. Handle Callback Queries (Buttons)
-                    if "callback_query" in update:
-                        cb = update["callback_query"]
-                        cb_id = cb["id"]
-                        cb_data = cb.get("data", "")
-                        chat_id = cb["message"]["chat"]["id"]
-                        message_id = cb["message"]["message_id"]
-
-                        print(f"[Callback] data={cb_data} from chat={chat_id}", flush=True)
-
-                        if cb_data.startswith("confirm_"):
-                            draft_id = cb_data.split("_")[1]
-                            draft = USER_DRAFTS.get(draft_id)
-                            if draft:
-                                save_confirmed_tx(draft)
-                                USER_DRAFTS.pop(draft_id, None)
-                                save_drafts(USER_DRAFTS)
-
-                                amount_display = f"{draft['amount']:,} so'm".replace(",", " ") if draft['amount'] > 0 else "0 so'm"
-                                action_name = "Nasiya (Qarz)" if draft.get("action_type") == "give" else "Qarz to'lovi"
-                                answer_callback_query(cb_id, text="Qarz saqlandi! ✅")
-
-                                final_text = (
-                                    f"✅ <b>Qarz daftaringizga muvaffaqiyatli saqlandi!</b>\n\n"
-                                    f"📋 <b>Turi:</b> {action_name}\n"
-                                    f"👤 <b>Mijoz:</b> <b>{draft['customer']}</b>\n"
-                                    f"💰 <b>Summa:</b> <b>{amount_display}</b>\n"
-                                    f"📦 <b>Tovarlar:</b> {draft['items']}\n"
-                                    f"📅 <b>Sana:</b> Bugun\n\n"
-                                    f"🎉 <i>Ma'lumotlar Qarz daftaringizga kiritildi!</i>"
-                                )
-                                markup = {
-                                    "inline_keyboard": [
-                                        [{"text": "📒 Qarz Daftarini Ochish", "web_app": {"url": WEBAPP_URL}}]
-                                    ]
-                                }
-                                edit_message_text(chat_id, message_id, final_text, reply_markup=markup)
-                            else:
-                                answer_callback_query(cb_id, text="Qoralama topilmadi yoki allaqachon saqlangan.")
-
-                        elif cb_data.startswith("edit_name_"):
-                            draft_id = cb_data.split("_")[2]
-                            USER_STATES[chat_id] = {"action": "waiting_name", "draft_id": draft_id, "message_id": message_id}
-                            answer_callback_query(cb_id)
-                            send_message(chat_id, f"✏️ <b>Qoralama #Q{draft_id}:</b> Mijozning to'g'ri ismini yozib yuboring (masalan: <i>Akmal aka</i> yoki <i>Nodir</i>):")
-
-                        elif cb_data.startswith("edit_sum_"):
-                            draft_id = cb_data.split("_")[2]
-                            USER_STATES[chat_id] = {"action": "waiting_amount", "draft_id": draft_id, "message_id": message_id}
-                            answer_callback_query(cb_id)
-                            send_message(chat_id, f"💰 <b>Qoralama #Q{draft_id}:</b> To'g'ri summani yozib yuboring (masalan: <i>50000</i> yoki <i>50 ming</i>):")
-
-                        elif cb_data.startswith("edit_items_"):
-                            draft_id = cb_data.split("_")[2]
-                            USER_STATES[chat_id] = {"action": "waiting_items", "draft_id": draft_id, "message_id": message_id}
-                            answer_callback_query(cb_id)
-                            send_message(chat_id, f"📦 <b>Qoralama #Q{draft_id}:</b> Tovarlar yoki izohni yozib yuboring (masalan: <i>2 ta non, yog', sigaret</i>):")
-
-                        elif cb_data.startswith("toggle_type_"):
-                            draft_id = cb_data.split("_")[2]
-                            draft = USER_DRAFTS.get(draft_id)
-                            if draft:
-                                draft["action_type"] = "receive" if draft.get("action_type") == "give" else "give"
-                                save_drafts(USER_DRAFTS)
-                                new_label = "🟢 Qarz berish" if draft["action_type"] == "give" else "🔵 Qarz to'lovi"
-                                answer_callback_query(cb_id, text=f"Turi o'zgartirildi: {new_label}")
-                                updated_text, markup = render_draft_message(draft_id, draft)
-                                edit_message_text(chat_id, message_id, updated_text, reply_markup=markup)
-
-                        elif cb_data.startswith("edit_full_"):
-                            draft_id = cb_data.split("_")[2]
-                            draft = USER_DRAFTS.get(draft_id)
-                            if draft:
-                                USER_STATES[chat_id] = {"action": "waiting_full", "draft_id": draft_id, "message_id": message_id}
-                                answer_callback_query(cb_id)
-                                cur_type = "Qarz berish" if draft.get("action_type") == "give" else "Qarz to'lovi"
-                                template = (
-                                    f"✍️ <b>Qoralama #Q{draft_id} ni to'liq tahrirlash:</b>\n\n"
-                                    f"Quyidagi matndan nusxa olib, kerakli joylarini o'zgartiring va bitta xabarda yuboring:\n\n"
-                                    f"<code>Mijoz: {draft['customer']}\n"
-                                    f"Summa: {draft['amount']}\n"
-                                    f"Tovarlar: {draft['items']}\n"
-                                    f"Turi: {cur_type}</code>"
-                                )
-                                send_message(chat_id, template)
-
-                        elif cb_data.startswith("delete_"):
-                            draft_id = cb_data.split("_")[1]
-                            USER_DRAFTS.pop(draft_id, None)
-                            save_drafts(USER_DRAFTS)
-                            answer_callback_query(cb_id, text="Qoralama bekor qilindi")
-                            edit_message_text(chat_id, message_id, f"❌ <b>Qoralama #Q{draft_id} bekor qilindi va o'chirildi.</b>")
-
-                    # 2. Handle Messages (Voice or Text)
-                    elif "message" in update:
-                        msg = update["message"]
-                        chat_id = msg["chat"]["id"]
-                        first_name = msg.get("from", {}).get("first_name", "Foydalanuvchi")
-                        text = msg.get("text", "")
-
-                        # Check if user is in an active prompt state
-                        if chat_id in USER_STATES and text:
-                            state = USER_STATES[chat_id]
-                            draft_id = state.get("draft_id")
-                            action = state.get("action")
-                            draft = USER_DRAFTS.get(draft_id)
-
-                            if draft:
-                                if action == "waiting_name":
-                                    new_name = text.strip()
-                                    draft["customer"] = new_name
-                                    save_drafts(USER_DRAFTS)
-                                    del USER_STATES[chat_id]
-                                    send_message(chat_id, f"✅ Mijoz ismi <b>{new_name}</b> ga to'g'rilandi!")
-                                    updated_text, markup = render_draft_message(draft_id, draft)
-                                    send_message(chat_id, updated_text, reply_markup=markup)
-                                    continue
-
-                                elif action == "waiting_amount":
-                                    parsed_num = parse_uzbek_ledger(text)["amount"]
-                                    if parsed_num > 0:
-                                        draft["amount"] = parsed_num
-                                        save_drafts(USER_DRAFTS)
-                                        del USER_STATES[chat_id]
-                                        amt_disp = f"{parsed_num:,} so'm".replace(",", " ")
-                                        send_message(chat_id, f"✅ Summa <b>{amt_disp}</b> ga to'g'rilandi!")
-                                        updated_text, markup = render_draft_message(draft_id, draft)
-                                        send_message(chat_id, updated_text, reply_markup=markup)
-                                        continue
-                                    else:
-                                        send_message(chat_id, "⚠️ Summa aniqlanmadi. Iltimos, raqamda yozing (masalan: 65000 yoki 65 ming):")
-                                        continue
-
-                                elif action == "waiting_items":
-                                    new_items = text.strip()
-                                    draft["items"] = new_items
-                                    save_drafts(USER_DRAFTS)
-                                    del USER_STATES[chat_id]
-                                    send_message(chat_id, f"✅ Tovarlar / izoh <b>{new_items}</b> ga to'g'rilandi!")
-                                    updated_text, markup = render_draft_message(draft_id, draft)
-                                    send_message(chat_id, updated_text, reply_markup=markup)
-                                    continue
-
-                                elif action == "waiting_full":
-                                    # Parse multi-line edit
-                                    lines = text.strip().split("\n")
-                                    for l in lines:
-                                        l = l.strip()
-                                        if re.match(r'^(mijoz|ism)\s*:', l, re.IGNORECASE):
-                                            val = re.sub(r'^(mijoz|ism)\s*:\s*', '', l, flags=re.IGNORECASE).strip()
-                                            if val: draft["customer"] = val
-                                        elif re.match(r'^(summa|narx)\s*:', l, re.IGNORECASE):
-                                            val_amt = parse_uzbek_ledger(l)["amount"]
-                                            if val_amt > 0: draft["amount"] = val_amt
-                                        elif re.match(r'^(tovarlar|izoh|mahsulotlar)\s*:', l, re.IGNORECASE):
-                                            val_it = re.sub(r'^(tovarlar|izoh|mahsulotlar)\s*:\s*', '', l, flags=re.IGNORECASE).strip()
-                                            if val_it: draft["items"] = val_it
-                                        elif re.match(r'^turi\s*:', l, re.IGNORECASE):
-                                            l_low = l.lower()
-                                            draft["action_type"] = "receive" if ("to'lov" in l_low or "tolov" in l_low or "qaytar" in l_low) else "give"
-
-                                    save_drafts(USER_DRAFTS)
-                                    del USER_STATES[chat_id]
-                                    send_message(chat_id, "✅ Butun qoralama muvaffaqiyatli yangilandi!")
-                                    updated_text, markup = render_draft_message(draft_id, draft)
-                                    send_message(chat_id, updated_text, reply_markup=markup)
-                                    continue
-
-                        # Standard message handlers
-                        if "voice" in msg or "audio" in msg:
-                            voice_obj = msg.get("voice") or msg.get("audio")
-                            print(f"[Voice] From: {first_name} ({chat_id}) Duration: {voice_obj.get('duration')}s", flush=True)
-                            handle_voice_message(chat_id, first_name, voice_obj)
-                        elif text.startswith("/"):
-                            print(f"[Command] From: {first_name} ({chat_id}) Text: {text}", flush=True)
-                            send_welcome(chat_id, first_name)
-                        elif len(text.strip()) > 3:
-                            print(f"[Text Ledger] From: {first_name} ({chat_id}) Text: {text}", flush=True)
-                            handle_text_ledger(chat_id, text)
-
+                    process_single_update(update)
         except Exception as e:
-            print(f"[Poll Exception]: {e}", flush=True)
+            log_msg(f"[Poll Exception]: {e}")
             time.sleep(2)
 
-class HealthCheckHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.send_header("Content-Type", "text/plain; charset=utf-8")
-        self.end_headers()
-        self.wfile.write(b"Aqlli Qarz Daftari Bot is active and running 24/7 on Render!\n")
-
-    def log_message(self, format, *args):
-        # Suppress periodic health check logs
-        pass
-
-def run_health_server():
-    port = int(os.getenv("PORT", 8080))
-    try:
-        server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
-        print(f"[*] Healthcheck HTTP server listening on port {port}...", flush=True)
-        server.serve_forever()
-    except Exception as e:
-        print(f"[-] Health server notice: {e}", flush=True)
-
 if __name__ == "__main__":
-    health_thread = threading.Thread(target=run_health_server, daemon=True)
-    health_thread.start()
-    poll_updates()
+    port = int(os.getenv("PORT", 8080))
+    server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
+    log_msg(f"[*] Aqlli Qarz Daftari Bot server listening on port {port}...")
+
+    # Start self-keepalive to keep Render free tier awake 24/7
+    threading.Thread(target=keep_alive_worker, daemon=True).start()
+
+    # Webhook setup on Render
+    webhook_url = "https://qarz-app-bot.onrender.com/webhook"
+    try:
+        req = urllib.request.Request(f"{API_BASE}/setWebhook?url={webhook_url}&drop_pending_updates=False")
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            log_msg(f"[Webhook Setup]: {resp.read().decode()}")
+    except Exception as e:
+        log_msg(f"[Webhook Notice]: {e}")
+
+    server.serve_forever()

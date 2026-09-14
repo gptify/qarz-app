@@ -1,0 +1,15 @@
+﻿name: Keep Render Bot Awake
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    name: Ping Render Endpoint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Keepalive Ping
+        run: |
+          curl -s -f -m 30 https://qarz-app-bot.onrender.com/ || true
