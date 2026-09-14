@@ -1,17 +1,31 @@
 // State management and storage layer for Qarz App
-const STORAGE_KEY = "qarz_app_tma_v1";
+function getStorageKey() {
+  try {
+    const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
+    if (tgUser && tgUser.id) {
+      return `qarz_app_tma_user_${tgUser.id}`;
+    }
+  } catch (e) {}
+  return "qarz_app_tma_v1";
+}
 
 class QarzStore {
   constructor() {
+    this.storageKey = getStorageKey();
     this.state = this.load();
     this.listeners = [];
   }
 
   load() {
     try {
-      const saved = localStorage.getItem(STORAGE_KEY);
+      const saved = localStorage.getItem(this.storageKey);
       if (saved) {
         return JSON.parse(saved);
+      }
+      // Check fallback legacy key
+      const legacy = localStorage.getItem("qarz_app_tma_v1");
+      if (legacy) {
+        return JSON.parse(legacy);
       }
     } catch (e) {
       console.warn("Could not read from localStorage, loading initial mock data", e);
@@ -21,7 +35,7 @@ class QarzStore {
 
   save() {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(this.state));
+      localStorage.setItem(this.storageKey, JSON.stringify(this.state));
     } catch (e) {
       console.error("Failed to save to localStorage", e);
     }
