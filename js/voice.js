@@ -215,10 +215,14 @@ class VoiceInputService {
           const gemResult = await this.transcribeWithGemini(audioBlob, b64);
           if (gemResult && gemResult.is_clear && gemResult.transcription) {
             text = gemResult.transcription;
+            let formattedItems = gemResult.items;
+            if (Array.isArray(formattedItems)) {
+              formattedItems = formattedItems.join(", ");
+            }
             parsedResult = {
               amount: parseInt(gemResult.amount) || 0,
               customerName: gemResult.customerName || "",
-              items: Array.isArray(gemResult.items) ? gemResult.items : (gemResult.items ? [gemResult.items] : []),
+              items: formattedItems ? [formattedItems] : [],
               rawText: text
             };
           }
@@ -271,13 +275,28 @@ class VoiceInputService {
     const prompt = `Siz O'zbekistondagi do'konlarning professional AI hisobchisisiz (Aqlli Qarz Daftari).
 Do'kondor yoki xaridor qarzga berilgan tovarlar yoki qarz to'lovi haqida ovozli xabar yubordi.
 Ushbu audio yozuvni diqqat bilan eshitib, barcha so'zlarni to'liq, ravon o'zbek tilida transkripsiya qiling va quyidagi JSON formatida ma'lumotlarni ajrating:
+
+1. "customerName": Mijoz ismi (masalan: Akmal aka, Nodir, Anvar usta).
+2. "amount": Umumiy qarz summasi (butun son raqam, so'mda).
+   - QOIDA: Har ikkala holatda ham summa avtomatik to'g'ri hisoblanishi SHART!
+   - 1-holat (har bir tovar narxi alohida aytilsa): Barcha tovarlar narxlarini birma-bir qo'shib, umumiy summasini yozing. Masalan: 2 ta non 8 ming + yog' 30 ming + kola 15 ming -> amount: 53000.
+   - 2-holat (umumiy summa tovarlar bilan birga aytilsa): Aytilgan umumiy summani yozing. Masalan: "50 mingga 2 ta non va yog'" -> amount: 50000.
+3. "items": Tovarlar ro'yxati (string).
+   - QAT'IY FORMAT QOIDASI:
+     a) Agar foydalanuvchi har bir tovar nomi va uning narxini aytsa, har bir tovardan keyin qavs ichida uning narxini yozing!
+        Masalan: "2 ta non (8 000 so'm), yog' (30 000 so'm), kola (15 000 so'm)" yoki "1 dona yog' (30 000 so'm), 1 dona kolbasa (100 000 so'm), 1 dona kola (25 000 so'm)".
+     b) Agar tovarlar bilan birga bitta umumiy summa aytilgan bo'lsa (har bir tovarning alohida narxi aytilmagan bo'lsa), faqat tovar nomlarini yozing (qavssiz)!
+        Masalan: "2 ta non, yog'" yoki "yog', kolbasa, 4 ta non".
+4. "type": "give" (qarz berildi) yoki "receive" (qarz to'landi).
+
+Format:
 {
   "is_clear": true,
   "transcription": "audioda eshitilgan gap",
-  "customerName": "Mijoz ismi (masalan: Akmal aka, Nodir, Anvar)",
-  "amount": 50000,
+  "customerName": "Anvar usta",
+  "amount": 155000,
   "type": "give",
-  "items": ["non", "yog'"]
+  "items": "1 dona yog' (30 000 so'm), 1 dona kolbasa (100 000 so'm), 1 dona kola (25 000 so'm)"
 }
 
 Agar audio bo'sh yoki shovqin bo'lsa:

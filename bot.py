@@ -172,15 +172,23 @@ def process_voice_with_gemini(audio_bytes: bytes, mime_type: str = "audio/ogg") 
 Do'kondor yoki xaridor qarzga berilgan tovarlar yoki to'lov haqida ovozli xabar yubordi.
 Ushbu audio yozuvni diqqat bilan eshitib, barcha so'zlarni to'liq, aniq o'zbek tilida transkripsiya qiling va quyidagi ma'lumotlarni ajrating:
 
-1. "transcription": audioda aytilgan to'liq gap (masalan: "Akmal akaga 50 mingga 2 ta non bilan yog' berdim").
+1. "transcription": audioda aytilgan to'liq gap (masalan: "Akmal akaga 50 mingga 2 ta non bilan yog' berdim" yoki "Anvar ustaga bir dona yog' 30 ming, kolbasa 100 ming").
 2. "customer_name": Mijozning ismi.
    - O'zbek ismlarini xatosiz, to'g'ri bosh harf bilan yozing: Akmal, Anvar, Nodir, Dilshod, Sardor, Rustam, Jamshid, Bobur, Otabek, Shavkat, Ulug'bek, Sherzod, Javohir, Farrux, Alisher, Bekzod, Jasur, Davron, Elyor, Xurshid, Aziz, Sanjar, Shohruh, Doston, Baxtiyor, Muzaffar, Umid, Komil, Ilhom, Zafar, Davlat; ayollar: Dilnoza, Shahnoza, Nilufar, Gulnoza, Madina, Malika, Feruza, Nargiza, Mohira, Sevara, Zilola, Lola, Rayhon, Ziyoda, Yulduz, Munira, Dildora va h.k.
-   - Hurmat so'zlari aytilgan bo'lsa qoldiring: "Akmal aka", "Nodir aka", "Dilnoza opa", "Rustam tog'a".
-   - Egalik va jo'nalish kelishigi qo'shimchalarini olib tashlang: "Akmalga" -> "Akmal", "Davlatga" -> "Davlat", "Nodir akaga" -> "Nodir aka", "Sardordan" -> "Sardor".
+   - Hurmat so'zlari aytilgan bo'lsa qoldiring: "Akmal aka", "Nodir aka", "Dilnoza opa", "Rustam tog'a", "Anvar usta".
+   - Egalik va jo'nalish kelishigi qo'shimchalarini olib tashlang: "Akmalga" -> "Akmal", "Davlatga" -> "Davlat", "Anvar ustaga" -> "Anvar usta", "Sardordan" -> "Sardor".
    - Agar ism aytilmagan yoki noaniq bo'lsa, "Mijoz" deb qaytaring.
-3. "amount": Qarz summasi (faqat butun son raqam, so'mda). Masalan: "ellik ming" -> 50000, "500 ming" -> 500000, "bir yuz yigirma ming" -> 120000, "15 ming" -> 15000.
-4. "type": "give" (qarz berildi / nasiya) yoki "receive" (qarz to'landi / qaytarildi).
-5. "items": Olingan tovarlar yoki izoh (masalan: "2 ta non, yog'", "sigaret, kola", "yog', kolbasa, 4 ta non").
+3. "amount": Umumiy qarz summasi (faqat butun son raqam, so'mda).
+   - QAT'IY QOIDA (AVTOMATIK YIG'INDI): Har ikkala holatda ham summa avtomatik to'g'ri hisoblanishi SHART!
+   - 1-holat (har bir tovar narxi alohida aytilsa): Barcha tovarlar narxlarini birma-bir qo'shib, umumiy summasini yozing. Masalan: 2 ta non 8 ming + yog' 30 ming + kola 15 ming -> amount: 53000 (yoki 30 ming + 100 ming + 25 ming -> 155000).
+   - 2-holat (umumiy summa tovarlar bilan birga aytilsa): Aytilgan umumiy summani yozing. Masalan: "50 mingga 2 ta non va yog'" -> amount: 50000.
+4. "items": Olingan tovarlar yoki izoh.
+   - QAT'IY FORMAT QOIDASI:
+     a) Agar foydalanuvchi har bir tovar nomi va uning narxini aytsa, har bir tovardan keyin qavs ichida uning narxini yozing!
+        Masalan: "2 ta non (8 000 so'm), yog' (30 000 so'm), kola (15 000 so'm)" yoki "bir dona yog' (30 000 so'm), bir dona kolbasa (100 000 so'm), bir dona kola (25 000 so'm)".
+     b) Agar tovarlar bilan birga bitta umumiy summa aytilgan bo'lsa (har bir tovarning alohida narxi aytilmagan bo'lsa), faqat tovar nomlarini yozing (qavssiz)!
+        Masalan: "2 ta non, yog'" yoki "yog', kolbasa, 4 ta non".
+5. "type": "give" (qarz berildi / nasiya) yoki "receive" (qarz to'landi / qaytarildi).
 6. "due_days": Qachongacha berilgani (kunlar soni, sukut bo'yicha 7).
 
 Qat'iy faqat JSON formatida qaytaring:
@@ -190,7 +198,7 @@ Qat'iy faqat JSON formatida qaytaring:
   "customer_name": "Davlat",
   "amount": 500000,
   "type": "give",
-  "items": "yog', kolbasa, 4 ta non",
+  "items": "yog' (300 000 so'm), kolbasa (100 000 so'm), 4 ta non (100 000 so'm)",
   "due_days": 7
 }
 
