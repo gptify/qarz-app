@@ -19,6 +19,7 @@ class ReminderService {
   generateReminderText(customer, tone = "polite") {
     const formattedDebt = this.formatMoney(customer.totalDebt);
     const shop = window.store?.state?.shopName || this.shopName;
+    const card = window.store?.state?.merchantCard || this.merchantCard || "8600 1234 5678 4512";
     const payLink = this.generatePaymentLink(customer.totalDebt);
 
     switch (tone) {
@@ -32,21 +33,21 @@ Imkoningiz bo'lganda kirib o'tsangiz minnatdor bo'lardik. Rahmat!`;
         return `Assalomu alaykum ${customer.name}! 
 Juma ayyomingiz muborak bo'lsin, oilangizga qut-baraka tilaymiz!
 "${shop}"dagi o'zaro hisob-kitob bo'yicha qoldiq: ${formattedDebt}.
-To'lovni do'konga kelib yoki Payme/Click orqali amalga oshirishingiz mumkin. Kuningiz xayrli o'tsin!`;
+To'lovni do'konga kelib yoki Payme/Click orqali (${card}) amalga oshirishingiz mumkin. Kuningiz xayrli o'tsin!`;
 
       case "formal":
         return `Hurmatli ${customer.name}!
 "${shop}" do'koni hisob-kitob bo'limidan eslatma:
 Sizning nasiya savdo bo'yicha qarz qoldig'ingiz: ${formattedDebt}.
 Iltimos, belgilangan qarz muddatiga rioya qilgan holda to'lovni yaqin kunlarda so'ndirishingizni so'raymiz.
-Plastik karta: 8600 1234 5678 4512`;
+Plastik karta: ${card}`;
 
       case "polite":
       default:
         return `Assalomu alaykum, hurmatli ${customer.name}!
 "${shop}" do'konidan xabar qilmoqdamiz. 
 Sizning jami nasiya balansingiz: ${formattedDebt}.
-To'lov uchun karta: 8600 1234 5678 4512
+To'lov uchun karta: ${card}
 Yoki tezkor to'lov havolasi: ${payLink}
 Sog'-salomat bo'ling!`;
     }

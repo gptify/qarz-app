@@ -19,14 +19,15 @@
   <div class="app-wrapper">
     <!-- Header -->
     <header class="app-header">
-      <div class="header-brand">
+      <div class="header-brand" id="btnHeaderBrandEdit" style="cursor: pointer;" title="Do'kon nomini tahrirlash">
         <div class="brand-icon">📒</div>
         <div class="brand-info">
-          <h1 id="headerShopTitle">Mahalla Baraka Do'koni</h1>
+          <h1 id="headerShopTitle">Mahalla Baraka Do'koni ✏️</h1>
           <p id="headerSubtitle">Aqlli Qarz Daftari</p>
         </div>
       </div>
       <div class="header-actions">
+        <button class="icon-btn" id="btnOpenShopSettings" title="Do'kon Sozlamalari (Nomi, Karta, Telefon)">⚙️</button>
         <button class="icon-btn" id="btnOpenQRPoster" title="Peshtaxta uchun QR Plakat">🖼️</button>
         <button class="icon-btn" id="btnOpenCloudBackup" title="Bulutli Zaxira va Sinxronlash">☁️</button>
         <button class="icon-btn" id="btnExport" title="Hisobot eksport qilish">📥</button>
@@ -627,6 +628,39 @@
         </div>
         <div id="restoreStatusMsg" style="font-size: 12px; margin-top: 10px; display: none;"></div>
       </div>
+    </div>
+  </div>
+
+  <!-- MODAL: DO'KON SOZLAMALARI -->
+  <div class="modal-overlay" id="modalShopSettings">
+    <div class="bottom-sheet">
+      <div class="sheet-handle"></div>
+      <div class="sheet-header">
+        <h2 class="sheet-title">⚙️ Do'kon Sozlamalari</h2>
+        <button class="close-btn" data-close="modalShopSettings">✕</button>
+      </div>
+      <form id="formShopSettings" class="form-body">
+        <div class="form-group">
+          <label class="form-label">🏪 Do'kon Nomi:</label>
+          <input type="text" id="inputSettingShopName" class="form-control" placeholder="Masalan: Osiyo Market, Baraka Oziq-ovqat" required />
+          <small style="color: var(--tg-theme-hint-color); font-size: 11px;">Ushbu nom ilova tepasida, QR plakatda va eslatma SMSlarida chiqadi.</small>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">💳 Click / Payme Karta Raqami:</label>
+          <input type="text" id="inputSettingMerchantCard" class="form-control" placeholder="8600 0000 0000 0000" />
+          <small style="color: var(--tg-theme-hint-color); font-size: 11px;">Mijozlarga yuboriladigan qarz to'lovi eslatmalariga biriktiriladi.</small>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">📞 Do'kondor Telefon Raqami:</label>
+          <input type="text" id="inputSettingOwnerPhone" class="form-control" placeholder="+998 90 123 45 67" />
+        </div>
+
+        <div class="form-actions" style="margin-top: 16px;">
+          <button type="submit" class="btn btn-primary" style="width: 100%;">💾 Sozlamalarni Saqlash</button>
+        </div>
+      </form>
     </div>
   </div>
 

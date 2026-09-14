@@ -17,20 +17,36 @@ class QarzStore {
   }
 
   load() {
+    let data = null;
     try {
       const saved = localStorage.getItem(this.storageKey);
       if (saved) {
-        return JSON.parse(saved);
-      }
-      // Check fallback legacy key
-      const legacy = localStorage.getItem("qarz_app_tma_v1");
-      if (legacy) {
-        return JSON.parse(legacy);
+        data = JSON.parse(saved);
+      } else {
+        // Check fallback legacy key
+        const legacy = localStorage.getItem("qarz_app_tma_v1");
+        if (legacy) {
+          data = JSON.parse(legacy);
+        }
       }
     } catch (e) {
       console.warn("Could not read from localStorage, loading initial mock data", e);
     }
-    return JSON.parse(JSON.stringify(window.INITIAL_DATA || {}));
+    if (!data) {
+      data = JSON.parse(JSON.stringify(window.INITIAL_DATA || {}));
+      const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
+      if (tgUser && tgUser.first_name) {
+        data.shopName = `${tgUser.first_name} do'koni`;
+      }
+    }
+    return data;
+  }
+
+  updateShopInfo({ shopName, ownerPhone, merchantCard }) {
+    if (shopName) this.state.shopName = shopName.trim();
+    if (ownerPhone !== undefined) this.state.ownerPhone = ownerPhone.trim();
+    if (merchantCard !== undefined) this.state.merchantCard = merchantCard.trim();
+    this.save();
   }
 
   save() {

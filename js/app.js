@@ -1283,6 +1283,54 @@ document.addEventListener("DOMContentLoaded", () => {
     }, 450);
   }
 
+  // --- STORE SETTINGS (Shop Name, Merchant Card, Phone) ---
+  function updateHeaderShopDisplay() {
+    const shopTitle = window.store.state.shopName || "Mahalla Baraka Do'koni";
+    const headerEl = document.getElementById("headerShopTitle");
+    if (headerEl) headerEl.textContent = `${shopTitle} ✏️`;
+    const posterShopTitle = document.getElementById("posterShopTitle");
+    if (posterShopTitle) posterShopTitle.textContent = shopTitle;
+  }
+
+  function openShopSettingsModal() {
+    haptic("light");
+    const s = window.store.state;
+    document.getElementById("inputSettingShopName").value = s.shopName || "";
+    document.getElementById("inputSettingMerchantCard").value = s.merchantCard || "";
+    document.getElementById("inputSettingOwnerPhone").value = s.ownerPhone || "";
+    openModal("modalShopSettings");
+  }
+
+  const btnOpenShopSettings = document.getElementById("btnOpenShopSettings");
+  if (btnOpenShopSettings) {
+    btnOpenShopSettings.addEventListener("click", openShopSettingsModal);
+  }
+
+  const btnHeaderBrandEdit = document.getElementById("btnHeaderBrandEdit");
+  if (btnHeaderBrandEdit) {
+    btnHeaderBrandEdit.addEventListener("click", openShopSettingsModal);
+  }
+
+  const formShopSettings = document.getElementById("formShopSettings");
+  if (formShopSettings) {
+    formShopSettings.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const shopName = document.getElementById("inputSettingShopName").value.trim();
+      const merchantCard = document.getElementById("inputSettingMerchantCard").value.trim();
+      const ownerPhone = document.getElementById("inputSettingOwnerPhone").value.trim();
+
+      if (shopName) {
+        window.store.updateShopInfo({ shopName, merchantCard, ownerPhone });
+        updateHeaderShopDisplay();
+        closeModal("modalShopSettings");
+        haptic("success");
+      }
+    });
+  }
+
+  // Update header on startup
+  updateHeaderShopDisplay();
+
   // Initial Render
   renderStats();
   renderCustomers();
